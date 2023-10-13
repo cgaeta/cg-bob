@@ -1,5 +1,5 @@
 import type { Elysia } from "elysia";
-import { string, z } from "zod";
+import { z } from "zod";
 import {
   verifyKey,
   InteractionResponseType,
@@ -126,6 +126,9 @@ const messageDataSchema = z.object({
   options: z.array(optionSchema).optional(),
 });
 
+const discordOptionSchema = z.union([optionSchema, messageDataSchema]);
+const discordOptionsSchema = discordOptionSchema.array();
+
 const messageComponentInteractionDataSchema = z.object({
   custom_id: z.string(),
   values: z.array(z.string()),
@@ -162,6 +165,210 @@ const interactionSchema = z.union([
   autoCompleteInteractionSchema,
 ]);
 
+type InteractionRespose = {
+  type: InteractionResponseType;
+  data: {
+    content?: string;
+    components?: {
+      type: MessageComponentTypes;
+    }[];
+    flags?: InteractionResponseFlags;
+  };
+};
+
+type DiscordRoute = [
+  string,
+  (
+    interaction: z.infer<typeof interactionSchema>,
+    args: z.infer<typeof discordOptionsSchema>
+  ) => Promise<InteractionRespose | void>
+];
+
+interface DiscordRouteFn {
+  <Z extends z.ZodTypeAny>(
+    path: string,
+    parser: Z,
+    handler:
+      | ((
+          interaction: z.infer<typeof interactionSchema>,
+          args: z.infer<Z>
+        ) => Promise<void | InteractionRespose>)
+      | DiscordRoute[]
+  ): DiscordRoute;
+}
+const discordRoute: DiscordRouteFn = (path, parser, handler) => {
+  if (typeof handler === "function") {
+    const fnHandler = async (
+      interaction: z.infer<typeof interactionSchema>,
+      opt: z.infer<typeof discordOptionSchema>[]
+    ) => {
+      const parsedOpt = parser.parse(opt);
+      return handler(interaction, parsedOpt);
+    };
+
+    return [path, fnHandler];
+  }
+
+  const server = handler.reduce((acc, route) => {
+    const [path, fn] = route;
+    acc.set(path, fn);
+    console.log({ acc });
+    return acc;
+  }, new Map<string, (interaction: z.infer<typeof interactionSchema>, args: z.infer<typeof discordOptionSchema>[]) => Promise<InteractionRespose | void>>());
+
+  console.log({ server });
+  const fnHandler = async (
+    interaction: z.infer<typeof interactionSchema>,
+    opt: z.infer<typeof discordOptionSchema>[]
+  ) => {
+    const [parsedOpt] = parser.parse(opt);
+
+    console.log(handler, server, parsedOpt);
+
+    // if (!parsedOpt.options?.[0]) throw new Error("Subcommand missing");
+
+    const route = server.get(parsedOpt.name);
+
+    if (!route) throw new Error("Route not found");
+
+    return await route(interaction, parsedOpt.options ?? []);
+  };
+
+  return [path, fnHandler];
+};
+
+const discordRouteRoot = (handler: DiscordRoute[]) => {
+  const server = handler.reduce((acc, route) => {
+    const [path, fn] = route;
+    acc.set(path, fn);
+    return acc;
+  }, new Map<string, (interaction: z.infer<typeof interactionSchema>, args: z.infer<typeof discordOptionSchema>[]) => Promise<InteractionRespose | void>>());
+
+  return async <
+    I extends z.infer<typeof interactionSchema> = z.infer<
+      typeof interactionSchema
+    >
+  >(
+    interaction: I
+  ) => {
+    try {
+      const i = messageInteractionSchema.parse(interaction);
+      const { data } = i;
+      const { name } = data;
+
+      const handler = server.get(name);
+
+      if (!handler) throw new Error("Route not found");
+
+      return await handler(i, data.options ?? []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+};
+
+const discordRouter = discordRouteRoot([
+  discordRoute("list", z.tuple([subcommandOptionSchema]), [
+    discordRoute("characters", z.tuple([]), async (interaction) => {
+      const { guild_id } = messageInteractionSchema.parse(interaction);
+
+      const [thisGame] = await selectGame.execute({ guild_id });
+      const characterList = await db
+        .select()
+        .from(characters)
+        .where(eq(characters.gameId, thisGame.id));
+
+      return {
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: "- " + characterList.map((c) => c.name).join("\n- "),
+          flags: InteractionResponseFlags.EPHEMERAL,
+        },
+      };
+    }),
+    discordRoute("players", z.tuple([]), async (interaction) => {
+      const { guild_id } = messageInteractionSchema.parse(interaction);
+
+      const [thisGame] = await selectGame.execute({ guild_id });
+      if (!thisGame) throw new Error("No game in this server");
+
+      const playerList = await db
+        .select()
+        .from(users)
+        .innerJoin(gamesUsers, eq(gamesUsers.userId, users.discordId))
+        .where(eq(gamesUsers.gameId, thisGame.id));
+
+      return {
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content:
+            "- " +
+            playerList.map((p) => `<@${p.users.discordId}>`).join("\n- "),
+          flags: InteractionResponseFlags.EPHEMERAL,
+        },
+      };
+    }),
+  ]),
+  discordRoute("tokens", z.void(), async (interaction) => {
+    const { guild_id, member } = messageInteractionSchema.parse(interaction);
+
+    const [thisGame] = await selectGame.execute({ guild_id });
+    if (!thisGame) throw new Error("No game in this server");
+
+    if (thisGame.gmDiscordId === member.user.id) {
+      const count = await selectAllCharacterTokens.execute({
+        gameId: thisGame.id,
+      });
+
+      const getTokenContent = (c: typeof count) => {
+        if (!c) throw new Error("Character not found!");
+        if (c.some((cc) => !cc.tokenCount))
+          throw new Error("Tokens missing in list!");
+
+        return c
+          .filter(({ characters: { gameId } }) => gameId === thisGame.id)
+          .map(
+            ({ characters, tokenCount }) =>
+              `- ${capitalize(characters.name)}: ${tokenCount?.tokens}`
+          )
+          .join("\n");
+      };
+
+      return {
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: getTokenContent(count),
+          flags: InteractionResponseFlags.EPHEMERAL,
+        },
+      };
+    } else {
+      const [count] = await db
+        .select()
+        .from(characters)
+        .innerJoin(tokenCount, eq(characters.id, tokenCount.characterId))
+        .innerJoin(userPlayers, eq(characters.id, userPlayers.characterId))
+        .innerJoin(gamesUsers, eq(userPlayers.discordId, gamesUsers.userId))
+        .innerJoin(games, eq(games.id, gamesUsers.gameId))
+        .where(
+          and(
+            eq(games.discordServerId, guild_id),
+            eq(userPlayers.discordId, member.user.id)
+          )
+        );
+
+      return {
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: `${capitalize(count.characters.name)} has ${
+            count.tokenCount.tokens
+          } token${count.tokenCount.tokens > 1 ? "s" : ""}!`,
+          flags: InteractionResponseFlags.EPHEMERAL,
+        },
+      };
+    }
+  }),
+]);
+
 export const discordEndpoint = (app: Elysia) =>
   app.post("/api/interactions", async (req) => {
     const signature = req.headers["x-signature-ed25519"] as string;
@@ -190,11 +397,14 @@ export const discordEndpoint = (app: Elysia) =>
         messageInteractionSchema.parse(interaction);
       const { name } = data;
 
+      const res = await discordRouter(interaction);
+      if (res) {
+        return res;
+      }
+
       switch (name) {
         case "gm": {
-          const option0 = z
-            .union([subcommand, subcommandGroup])
-            .parse(data.options?.[0]);
+          const option0 = subcommandOptionSchema.parse(data.options?.[0]);
 
           switch (option0.name) {
             case "game": {
@@ -355,67 +565,6 @@ export const discordEndpoint = (app: Elysia) =>
               throw new Error("Missing gm subcommand!");
           }
         }
-        case "tokens":
-          const [thisGame] = await selectGame.execute({ guild_id });
-          if (!thisGame) throw new Error("No game in this server");
-
-          if (thisGame.gmDiscordId === member.user.id) {
-            const count = await selectAllCharacterTokens.execute({
-              gameId: thisGame.id,
-            });
-
-            const getTokenContent = (c: typeof count) => {
-              if (!c) throw new Error("Character not found!");
-              if (c.some((cc) => !cc.tokenCount))
-                throw new Error("Tokens missing in list!");
-
-              return c
-                .filter(({ characters: { gameId } }) => gameId === thisGame.id)
-                .map(
-                  ({ characters, tokenCount }) =>
-                    `- ${capitalize(characters.name)}: ${tokenCount?.tokens}`
-                )
-                .join("\n");
-            };
-
-            return {
-              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: getTokenContent(count),
-                flags: InteractionResponseFlags.EPHEMERAL,
-              },
-            };
-          } else {
-            const [count] = await db
-              .select()
-              .from(characters)
-              .innerJoin(tokenCount, eq(characters.id, tokenCount.characterId))
-              .innerJoin(
-                userPlayers,
-                eq(characters.id, userPlayers.characterId)
-              )
-              .innerJoin(
-                gamesUsers,
-                eq(userPlayers.discordId, gamesUsers.userId)
-              )
-              .innerJoin(games, eq(games.id, gamesUsers.gameId))
-              .where(
-                and(
-                  eq(games.discordServerId, guild_id),
-                  eq(userPlayers.discordId, member.user.id)
-                )
-              );
-
-            return {
-              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: `${capitalize(count.characters.name)} has ${
-                  count.tokenCount.tokens
-                } token${count.tokenCount.tokens > 1 ? "s" : ""}!`,
-                flags: InteractionResponseFlags.EPHEMERAL,
-              },
-            };
-          }
         case "moves":
           const [{ value: character }, { value: action }, { value: moves }] = z
             .tuple([stringOption, stringOption, stringOption])
@@ -557,25 +706,7 @@ export const discordEndpoint = (app: Elysia) =>
             const [thisGame] = await selectGame.execute({ guild_id });
             if (!thisGame) throw new Error("No game in this server");
 
-            if (option1.name === "characters") {
-              try {
-                const characterList = await db
-                  .select()
-                  .from(characters)
-                  .where(eq(characters.gameId, thisGame.id));
-
-                return {
-                  type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                  data: {
-                    content:
-                      "- " + characterList.map((c) => c.name).join("\n- "),
-                    flags: InteractionResponseFlags.EPHEMERAL,
-                  },
-                };
-              } catch (err) {
-                console.error(err);
-              }
-            } else if (option1.name === "players") {
+            if (option1.name === "players") {
               try {
                 const playerList = await db
                   .select()
