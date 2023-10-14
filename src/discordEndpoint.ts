@@ -223,9 +223,10 @@ const discordRoute: DiscordRouteFn = (path, parser, handler) => {
   return [path, fnHandler];
 };
 
-const interactionContext = new AsyncLocalStorage<
-  z.infer<typeof messageInteractionSchema>
->();
+const context = new AsyncLocalStorage<{
+  interaction: z.infer<typeof messageInteractionSchema>;
+  thisGame: typeof games.$inferSelect | undefined;
+}>();
 
 const discordRouteRoot = (handler: DiscordRoute[]) => {
   const server = handler.reduce(reduceRoutes, new Map());
@@ -239,7 +240,9 @@ const discordRouteRoot = (handler: DiscordRoute[]) => {
   ) => {
     try {
       const i = messageInteractionSchema.parse(interaction);
-      return await interactionContext.run(i, async () => {
+      const [thisGame] = await selectGame.execute({ guild_id: i.guild_id });
+
+      return await context.run({ interaction: i, thisGame }, async () => {
         const { data } = i;
         const { name } = data;
 
@@ -256,10 +259,9 @@ const discordRouteRoot = (handler: DiscordRoute[]) => {
 const discordRouter = discordRouteRoot([
   discordRoute("list", z.tuple([subcommandOptionSchema]), [
     discordRoute("characters", z.tuple([]), async () => {
-      const { guild_id } =
-        interactionContext.getStore() ?? YEET("Fucking context");
+      const thisGame =
+        context.getStore()?.thisGame ?? YEET("No game in this server");
 
-      const [thisGame] = await selectGame.execute({ guild_id });
       const characterList = await db
         .select()
         .from(characters)
@@ -274,11 +276,8 @@ const discordRouter = discordRouteRoot([
       };
     }),
     discordRoute("players", z.tuple([]), async () => {
-      const { guild_id } =
-        interactionContext.getStore() ?? YEET("Fucking context");
-
-      const [thisGame] = await selectGame.execute({ guild_id });
-      if (!thisGame) throw new Error("No game in this server");
+      const thisGame =
+        context.getStore()?.thisGame ?? YEET("No game in this server");
 
       const playerList = await db
         .select()
@@ -298,13 +297,12 @@ const discordRouter = discordRouteRoot([
     }),
   ]),
   discordRoute("tokens", z.tuple([]), async () => {
-    const { guild_id, member } =
-      interactionContext.getStore() ?? YEET("Fucking context");
+    const { interaction: i, thisGame } =
+      context.getStore() ?? YEET("Fucking context");
 
-    const [thisGame] = await selectGame.execute({ guild_id });
     if (!thisGame) throw new Error("No game in this server");
 
-    if (thisGame.gmDiscordId === member.user.id) {
+    if (thisGame.gmDiscordId === i.member.user.id) {
       const count = await selectAllCharacterTokens.execute({
         gameId: thisGame.id,
       });
@@ -340,8 +338,8 @@ const discordRouter = discordRouteRoot([
         .innerJoin(games, eq(games.id, gamesUsers.gameId))
         .where(
           and(
-            eq(games.discordServerId, guild_id),
-            eq(userPlayers.discordId, member.user.id)
+            eq(games.discordServerId, i.guild_id),
+            eq(userPlayers.discordId, i.member.user.id)
           )
         );
 
