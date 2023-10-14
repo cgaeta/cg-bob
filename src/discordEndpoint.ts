@@ -8,6 +8,7 @@ import {
   InteractionResponseFlags,
 } from "discord-interactions";
 import { eq, and, like } from "drizzle-orm";
+import { AsyncLocalStorage } from "async_hooks";
 
 import { players } from "./tokens";
 import { generalMoves, uniqueMoves } from "./moves";
@@ -176,73 +177,58 @@ type InteractionRespose = {
   };
 };
 
-type DiscordRoute = [
-  string,
-  (
-    interaction: z.infer<typeof interactionSchema>,
-    args: z.infer<typeof discordOptionsSchema>
-  ) => Promise<InteractionRespose | void>
-];
+type DiscordRouteHandler<A extends z.ZodTypeAny = typeof discordOptionsSchema> =
+  (a: z.infer<A>) => Promise<InteractionRespose | void>;
+type DiscordRoute = [string, DiscordRouteHandler];
 
 interface DiscordRouteFn {
   <Z extends z.ZodTypeAny>(
     path: string,
     parser: Z,
-    handler:
-      | ((
-          interaction: z.infer<typeof interactionSchema>,
-          args: z.infer<Z>
-        ) => Promise<void | InteractionRespose>)
-      | DiscordRoute[]
+    handler: DiscordRouteHandler<Z> | DiscordRoute[]
   ): DiscordRoute;
 }
+
+const YEET = (e: string) => {
+  throw new Error(e);
+};
+
+const reduceRoutes = (
+  acc: Map<string, DiscordRouteHandler>,
+  [path, fn]: DiscordRoute
+) => {
+  acc.set(path, fn);
+  return acc;
+};
+
 const discordRoute: DiscordRouteFn = (path, parser, handler) => {
   if (typeof handler === "function") {
-    const fnHandler = async (
-      interaction: z.infer<typeof interactionSchema>,
-      opt: z.infer<typeof discordOptionSchema>[]
-    ) => {
+    const fnHandler = async (opt: z.infer<typeof discordOptionsSchema>) => {
       const parsedOpt = parser.parse(opt);
-      return handler(interaction, parsedOpt);
+      return handler(parsedOpt);
     };
 
     return [path, fnHandler];
   }
 
-  const server = handler.reduce((acc, route) => {
-    const [path, fn] = route;
-    acc.set(path, fn);
-    console.log({ acc });
-    return acc;
-  }, new Map<string, (interaction: z.infer<typeof interactionSchema>, args: z.infer<typeof discordOptionSchema>[]) => Promise<InteractionRespose | void>>());
+  const server = handler.reduce(reduceRoutes, new Map());
 
-  console.log({ server });
-  const fnHandler = async (
-    interaction: z.infer<typeof interactionSchema>,
-    opt: z.infer<typeof discordOptionSchema>[]
-  ) => {
+  const fnHandler = async (opt: z.infer<typeof discordOptionsSchema>) => {
     const [parsedOpt] = parser.parse(opt);
+    const route = server.get(parsedOpt.name) ?? YEET("Route not found");
 
-    console.log(handler, server, parsedOpt);
-
-    // if (!parsedOpt.options?.[0]) throw new Error("Subcommand missing");
-
-    const route = server.get(parsedOpt.name);
-
-    if (!route) throw new Error("Route not found");
-
-    return await route(interaction, parsedOpt.options ?? []);
+    return await route(parsedOpt.options ?? []);
   };
 
   return [path, fnHandler];
 };
 
+const interactionContext = new AsyncLocalStorage<
+  z.infer<typeof messageInteractionSchema>
+>();
+
 const discordRouteRoot = (handler: DiscordRoute[]) => {
-  const server = handler.reduce((acc, route) => {
-    const [path, fn] = route;
-    acc.set(path, fn);
-    return acc;
-  }, new Map<string, (interaction: z.infer<typeof interactionSchema>, args: z.infer<typeof discordOptionSchema>[]) => Promise<InteractionRespose | void>>());
+  const server = handler.reduce(reduceRoutes, new Map());
 
   return async <
     I extends z.infer<typeof interactionSchema> = z.infer<
@@ -253,14 +239,14 @@ const discordRouteRoot = (handler: DiscordRoute[]) => {
   ) => {
     try {
       const i = messageInteractionSchema.parse(interaction);
-      const { data } = i;
-      const { name } = data;
+      return await interactionContext.run(i, async () => {
+        const { data } = i;
+        const { name } = data;
 
-      const handler = server.get(name);
+        const handler = server.get(name) ?? YEET("Route not found");
 
-      if (!handler) throw new Error("Route not found");
-
-      return await handler(i, data.options ?? []);
+        return handler(data.options ?? []);
+      });
     } catch (err) {
       console.error(err);
     }
@@ -269,8 +255,9 @@ const discordRouteRoot = (handler: DiscordRoute[]) => {
 
 const discordRouter = discordRouteRoot([
   discordRoute("list", z.tuple([subcommandOptionSchema]), [
-    discordRoute("characters", z.tuple([]), async (interaction) => {
-      const { guild_id } = messageInteractionSchema.parse(interaction);
+    discordRoute("characters", z.tuple([]), async () => {
+      const { guild_id } =
+        interactionContext.getStore() ?? YEET("Fucking context");
 
       const [thisGame] = await selectGame.execute({ guild_id });
       const characterList = await db
@@ -286,8 +273,9 @@ const discordRouter = discordRouteRoot([
         },
       };
     }),
-    discordRoute("players", z.tuple([]), async (interaction) => {
-      const { guild_id } = messageInteractionSchema.parse(interaction);
+    discordRoute("players", z.tuple([]), async () => {
+      const { guild_id } =
+        interactionContext.getStore() ?? YEET("Fucking context");
 
       const [thisGame] = await selectGame.execute({ guild_id });
       if (!thisGame) throw new Error("No game in this server");
@@ -309,8 +297,9 @@ const discordRouter = discordRouteRoot([
       };
     }),
   ]),
-  discordRoute("tokens", z.void(), async (interaction) => {
-    const { guild_id, member } = messageInteractionSchema.parse(interaction);
+  discordRoute("tokens", z.tuple([]), async () => {
+    const { guild_id, member } =
+      interactionContext.getStore() ?? YEET("Fucking context");
 
     const [thisGame] = await selectGame.execute({ guild_id });
     if (!thisGame) throw new Error("No game in this server");
