@@ -10,6 +10,12 @@ import {
 import { eq, and, like } from "drizzle-orm";
 import { AsyncLocalStorage } from "async_hooks";
 
+import {
+  discordRouterRoot,
+  discordRoute,
+  type DiscordContext,
+  schema,
+} from "./discord-router";
 import { players } from "./tokens";
 import { generalMoves, uniqueMoves } from "./moves";
 import { db } from "./db";
@@ -44,13 +50,6 @@ const choiceSchema = z
   })
   .optional();
 
-const memberSchema = z.object({
-  user: z.object({
-    id: z.string(),
-    username: z.string(),
-  }),
-});
-
 const UNDER_CONSTRUCTION_RESP = {
   type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
   data: {
@@ -59,205 +58,34 @@ const UNDER_CONSTRUCTION_RESP = {
   },
 };
 
-const baseOptionSchema = z.object({
-  name: z.string(),
-});
-
-type Option<T extends number = number> = z.infer<typeof baseOptionSchema> & {
-  type: T;
-  focused?: boolean;
-};
-
-const subcommand: z.ZodType<
-  Option<1> & { options?: Option<3 | 4 | 5 | 6 | 7>[] }
-> = z.object({
-  type: z.literal(1),
-  name: z.string(),
-  options: z.lazy(() => flagOptionSchema.array()).optional(),
-});
-const subcommandGroup: z.ZodType<Option<2> & { options: Option<1 | 2>[] }> =
-  z.object({
-    type: z.literal(2),
-    name: z.string(),
-    options: z.lazy(() => subcommandOptionSchema.array().min(1)),
-  });
-const stringOption = z
-  .object({
-    type: z.literal(3),
-    value: z.string(),
-    focused: z.boolean().optional(),
-  })
-  .merge(baseOptionSchema);
-const integerOption = z
-  .object({
-    type: z.literal(4),
-    value: z.number(),
-    focused: z.boolean().optional(),
-  })
-  .merge(baseOptionSchema);
-const booleanOption = z
-  .object({
-    type: z.literal(5),
-    value: z.boolean(),
-  })
-  .merge(baseOptionSchema);
-const userOption = z
-  .object({
-    type: z.literal(6),
-    value: z.string(),
-  })
-  .merge(baseOptionSchema);
-
-const subcommandOptionSchema = z.union([subcommand, subcommandGroup]);
-
-const autoCompletableOption = z.union([stringOption, integerOption]);
-
-const flagOptionSchema = z.union([
-  stringOption,
-  integerOption,
-  booleanOption,
-  userOption,
-]);
-
-const optionSchema = z.union([subcommandOptionSchema, flagOptionSchema]);
-
-const messageDataSchema = z.object({
-  type: z.number(),
-  name: z.string(),
-  options: z.array(optionSchema).optional(),
-});
-
-const discordOptionSchema = z.union([optionSchema, messageDataSchema]);
-const discordOptionsSchema = discordOptionSchema.array();
-
-const messageComponentInteractionDataSchema = z.object({
-  custom_id: z.string(),
-  values: z.array(z.string()),
-});
-
-const pingSchema = z.object({
-  type: z.literal(1),
-});
-
-const messageInteractionSchema = z.object({
-  type: z.literal(2),
-  member: memberSchema,
-  guild_id: z.string(),
-  data: messageDataSchema,
-});
-
-const messageComponentInteractionSchema = z.object({
-  type: z.literal(3),
-  member: memberSchema,
-  guild_id: z.string(),
-  data: messageComponentInteractionDataSchema,
-});
-
-const autoCompleteInteractionSchema = z.object({
-  type: z.literal(4),
-  guild_id: z.string(),
-  data: messageDataSchema,
-});
-
-const interactionSchema = z.union([
-  pingSchema,
-  messageInteractionSchema,
-  messageComponentInteractionSchema,
-  autoCompleteInteractionSchema,
-]);
-
-type InteractionRespose = {
-  type: InteractionResponseType;
-  data: {
-    content?: string;
-    components?: {
-      type: MessageComponentTypes;
-    }[];
-    flags?: InteractionResponseFlags;
-  };
-};
-
-type DiscordRouteHandler<A extends z.ZodTypeAny = typeof discordOptionsSchema> =
-  (a: z.infer<A>) => Promise<InteractionRespose | void>;
-type DiscordRoute = [string, DiscordRouteHandler];
-
-interface DiscordRouteFn {
-  <Z extends z.ZodTypeAny>(
-    path: string,
-    parser: Z,
-    handler: DiscordRouteHandler<Z> | DiscordRoute[]
-  ): DiscordRoute;
-}
-
 const YEET = (e: string) => {
   throw new Error(e);
 };
 
-const reduceRoutes = (
-  acc: Map<string, DiscordRouteHandler>,
-  [path, fn]: DiscordRoute
+const getTokenContent = (
+  c: {
+    tokenCount: typeof tokenCount.$inferSelect;
+    characters: typeof characters.$inferSelect;
+  }[]
 ) => {
-  acc.set(path, fn);
-  return acc;
+  if (!c) throw new Error("Character not found!");
+  if (c.some((cc) => !cc.tokenCount))
+    throw new Error("Tokens missing in list!");
+
+  return c
+    .map(
+      ({ characters, tokenCount }) =>
+        `- ${capitalize(characters.name)}: ${tokenCount?.tokens}`
+    )
+    .join("\n");
 };
 
-const discordRoute: DiscordRouteFn = (path, parser, handler) => {
-  if (typeof handler === "function") {
-    const fnHandler = async (opt: z.infer<typeof discordOptionsSchema>) => {
-      const parsedOpt = parser.parse(opt);
-      return handler(parsedOpt);
-    };
+const context = new AsyncLocalStorage<
+  DiscordContext<{ thisGame: typeof games.$inferSelect }>
+>();
 
-    return [path, fnHandler];
-  }
-
-  const server = handler.reduce(reduceRoutes, new Map());
-
-  const fnHandler = async (opt: z.infer<typeof discordOptionsSchema>) => {
-    const [parsedOpt] = parser.parse(opt);
-    const route = server.get(parsedOpt.name) ?? YEET("Route not found");
-
-    return await route(parsedOpt.options ?? []);
-  };
-
-  return [path, fnHandler];
-};
-
-const context = new AsyncLocalStorage<{
-  interaction: z.infer<typeof messageInteractionSchema>;
-  thisGame: typeof games.$inferSelect | undefined;
-}>();
-
-const discordRouteRoot = (handler: DiscordRoute[]) => {
-  const server = handler.reduce(reduceRoutes, new Map());
-
-  return async <
-    I extends z.infer<typeof interactionSchema> = z.infer<
-      typeof interactionSchema
-    >
-  >(
-    interaction: I
-  ) => {
-    try {
-      const i = messageInteractionSchema.parse(interaction);
-      const [thisGame] = await selectGame.execute({ guild_id: i.guild_id });
-
-      return await context.run({ interaction: i, thisGame }, async () => {
-        const { data } = i;
-        const { name } = data;
-
-        const handler = server.get(name) ?? YEET("Route not found");
-
-        return handler(data.options ?? []);
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-};
-
-const discordRouter = discordRouteRoot([
-  discordRoute("list", z.tuple([subcommandOptionSchema]), [
+const discordRouter = discordRouterRoot([
+  discordRoute("list", z.tuple([schema.subcommandOption]), [
     discordRoute("characters", z.tuple([]), async () => {
       const thisGame =
         context.getStore()?.thisGame ?? YEET("No game in this server");
@@ -306,20 +134,6 @@ const discordRouter = discordRouteRoot([
       const count = await selectAllCharacterTokens.execute({
         gameId: thisGame.id,
       });
-
-      const getTokenContent = (c: typeof count) => {
-        if (!c) throw new Error("Character not found!");
-        if (c.some((cc) => !cc.tokenCount))
-          throw new Error("Tokens missing in list!");
-
-        return c
-          .filter(({ characters: { gameId } }) => gameId === thisGame.id)
-          .map(
-            ({ characters, tokenCount }) =>
-              `- ${capitalize(characters.name)}: ${tokenCount?.tokens}`
-          )
-          .join("\n");
-      };
 
       return {
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -374,28 +188,31 @@ export const discordEndpoint = (app: Elysia) =>
       throw new Error("Bad request signature");
     }
 
-    const interaction = interactionSchema.parse(req.body);
+    const interaction = schema.interaction.parse(req.body);
     const { type } = interaction;
 
     if (type === InteractionType.PING) {
       return { type: InteractionResponseType.PONG };
     } else if (type === InteractionType.APPLICATION_COMMAND) {
       const { member, guild_id, data } =
-        messageInteractionSchema.parse(interaction);
+        schema.messageInteraction.parse(interaction);
       const { name } = data;
 
-      const res = await discordRouter(interaction);
+      const res = await discordRouter(interaction, context, async () => {
+        const [thisGame] = await selectGame.execute({ guild_id });
+        return { thisGame };
+      });
       if (res) {
         return res;
       }
 
       switch (name) {
         case "gm": {
-          const option0 = subcommandOptionSchema.parse(data.options?.[0]);
+          const option0 = schema.subcommandOption.parse(data.options?.[0]);
 
           switch (option0.name) {
             case "game": {
-              const option1 = subcommand.parse(option0.options?.[0]);
+              const option1 = schema.subcommand.parse(option0.options?.[0]);
 
               switch (option1.name) {
                 case "init": {
@@ -428,13 +245,13 @@ export const discordEndpoint = (app: Elysia) =>
               }
             }
             case "assign": {
-              const option1 = subcommand.parse(option0.options?.[0]);
+              const option1 = schema.subcommand.parse(option0.options?.[0]);
 
               switch (option1.name) {
                 case "character": {
                   try {
                     const [user, { value: characterId }] = z
-                      .tuple([userOption, stringOption])
+                      .tuple([schema.userOption, schema.stringOption])
                       .parse(option1.options);
 
                     const [thisGame] = await selectGame.execute({ guild_id });
@@ -472,7 +289,7 @@ export const discordEndpoint = (app: Elysia) =>
                 }
                 case "tokens": {
                   const [char, tokens] = z
-                    .tuple([stringOption, integerOption])
+                    .tuple([schema.stringOption, schema.integerOption])
                     .parse(option1.options);
 
                   const [thisGame] = await db
@@ -515,12 +332,12 @@ export const discordEndpoint = (app: Elysia) =>
               }
             }
             case "create": {
-              const option1 = subcommand.parse(option0.options?.[0]);
+              const option1 = schema.subcommand.parse(option0.options?.[0]);
 
               switch (option1.name) {
                 case "character": {
                   const [{ value: name }] = z
-                    .tuple([stringOption])
+                    .tuple([schema.stringOption])
                     .parse(option1.options);
 
                   const [thisGame] = await selectGame.execute({ guild_id });
@@ -554,7 +371,11 @@ export const discordEndpoint = (app: Elysia) =>
         }
         case "moves":
           const [{ value: character }, { value: action }, { value: moves }] = z
-            .tuple([stringOption, stringOption, stringOption])
+            .tuple([
+              schema.stringOption,
+              schema.stringOption,
+              schema.stringOption,
+            ])
             .parse(data.options);
           if (action === "list") {
             const m = movesSchema.parse(moves);
@@ -688,7 +509,7 @@ export const discordEndpoint = (app: Elysia) =>
           break;
         case "list":
           {
-            const option1 = subcommand.parse(data.options?.[0]);
+            const option1 = schema.subcommand.parse(data.options?.[0]);
 
             const [thisGame] = await selectGame.execute({ guild_id });
             if (!thisGame) throw new Error("No game in this server");
@@ -726,40 +547,38 @@ export const discordEndpoint = (app: Elysia) =>
         },
       };
     } else if (type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
-      const getOptions = (
-        opts: z.infer<typeof optionSchema>[]
-      ): z.infer<typeof flagOptionSchema>[] => {
+      const getOptions = (opts: schema.Option[]): schema.FlagOption[] => {
         return opts
           .map((o) => {
-            const optWithOptions = subcommandOptionSchema.safeParse(o);
+            const optWithOptions = schema.subcommandOption.safeParse(o);
 
             if (optWithOptions.success) {
               return optWithOptions.data.options
                 ? getOptions(
-                    optionSchema.array().parse(optWithOptions.data.options)
+                    schema.option.array().parse(optWithOptions.data.options)
                   )
                 : [];
             } else {
-              return flagOptionSchema.parse(o);
+              return schema.flagOption.parse(o);
             }
           })
           .flat();
       };
       const autoCompleteInteraction =
-        autoCompleteInteractionSchema.parse(interaction);
+        schema.autoCompleteInteraction.parse(interaction);
       const { guild_id } = interaction;
 
       const flatOptions = getOptions(
         autoCompleteInteraction.data.options ?? []
       );
       const focusedOption = flatOptions.find((o) => {
-        const opt = autoCompletableOption.safeParse(o);
+        const opt = schema.autoCompletableOption.safeParse(o);
         if (opt.success) return opt.data.focused;
         return false;
       });
 
       if (focusedOption?.name === "character") {
-        const { value } = stringOption.parse(focusedOption);
+        const { value } = schema.stringOption.parse(focusedOption);
 
         const filteredCharacters = await db
           .select()
