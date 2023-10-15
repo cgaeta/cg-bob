@@ -98,7 +98,8 @@ const discordRouter = discordRouterRoot([
       return {
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
-          content: "- " + characterList.map((c) => c.name).join("\n- "),
+          content:
+            "- " + characterList.map((c) => capitalize(c.name)).join("\n- "),
           flags: InteractionResponseFlags.EPHEMERAL,
         },
       };
@@ -168,6 +169,248 @@ const discordRouter = discordRouterRoot([
       };
     }
   }),
+  discordRoute(
+    "moves",
+    z.tuple([schema.stringOption, schema.stringOption, schema.stringOption]),
+    async ([char, act, mov]) => {
+      if (act.value === "list") {
+        const m = movesSchema.parse(mov.value);
+        const general = generalMoves[m];
+        const c = nerdSchema.parse(char.value);
+        const unique = uniqueMoves[c][m];
+
+        return {
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `${general.concat(unique).map((g) => `\n- ${g}`)}`,
+            components: [
+              {
+                type: MessageComponentTypes.ACTION_ROW,
+                components: [
+                  {
+                    type: MessageComponentTypes.BUTTON,
+                    label: "Make a Strong Move",
+                    style: 2,
+                    emoji: {
+                      id: null,
+                      name: "💪",
+                      animated: false,
+                    },
+                    custom_id: `move-strong-${c}`,
+                  },
+                  {
+                    type: MessageComponentTypes.BUTTON,
+                    label: "Make a Normal Move",
+                    style: 2,
+                    emoji: {
+                      id: null,
+                      name: "😐",
+                      animated: false,
+                    },
+                    custom_id: `move-normal-${c}`,
+                  },
+                  {
+                    type: MessageComponentTypes.BUTTON,
+                    label: "Make a Weak Move",
+                    style: 2,
+                    emoji: {
+                      id: null,
+                      name: "😭",
+                      animated: false,
+                    },
+                    custom_id: `move-weak-${c}`,
+                  },
+                ],
+              },
+            ],
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        };
+      } else if (act.value === "do") {
+        const c = nerdSchema.parse(char.value);
+
+        const thisGame = context.getStore()?.thisGame;
+        if (!thisGame) throw new Error("No game in this server");
+
+        const count = await selectCharacterTokens.get({
+          name: c,
+          gameId: thisGame.id,
+        });
+
+        if (!count) throw new Error("Character not found!");
+        if (!count.tokenCount) throw new Error("Tokens not found!");
+
+        let content;
+        if (mov.value === "strongMoves") {
+          if (count.tokenCount.tokens < 1) {
+            content = `${capitalize(
+              c
+            )} can't make a strong move without a token!`;
+          } else {
+            await db
+              .update(tokenCount)
+              .set({ tokens: count.tokenCount.tokens - 1 })
+              .where(eq(tokenCount.characterId, count.tokenCount.characterId));
+          }
+
+          content = `${capitalize(
+            c
+          )} has spent a token and made a strong move!`;
+        } else if (mov.value === "weakMoves") {
+          await db
+            .update(tokenCount)
+            .set({ tokens: count.tokenCount.tokens + 1 })
+            .where(eq(tokenCount.characterId, count.tokenCount.characterId));
+
+          content = `${capitalize(c)} has made a weak move and earned a token!`;
+        } else if (mov.value === "normalMoves") {
+          content = `${capitalize(c)} has made a normal move.`;
+        } else if (mov.value === "socialMoves") {
+          content = `${capitalize(
+            c
+          )} has made a normal move? Ask your GM what happens next.`;
+        }
+
+        return {
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: { content },
+        };
+      }
+    }
+  ),
+  discordRoute("gm", z.tuple([schema.subcommandOption]), [
+    discordRoute("game", z.tuple([schema.subcommand]), [
+      discordRoute("init", z.tuple([]), async () => {
+        const { interaction: i } =
+          context.getStore() ?? YEET("Fucking context");
+        await db.insert(games).values({
+          discordServerId: i.guild_id,
+          gmDiscordId: i.member.user.id,
+        });
+
+        return {
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `Started a new game run by <@${i.member.user.id}>`,
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        };
+      }),
+      discordRoute("info", z.tuple([]), async () => {
+        const thisGame =
+          context.getStore()?.thisGame ?? YEET("Fucking context");
+
+        return {
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: thisGame
+              ? `This server has a game run by <@${thisGame.gmDiscordId}>`
+              : "No game running in this server",
+            flags: InteractionResponseFlags.EPHEMERAL,
+          },
+        };
+      }),
+    ]),
+    discordRoute("assign", z.tuple([schema.subcommand]), [
+      discordRoute(
+        "character",
+        z.tuple([schema.userOption, schema.stringOption]),
+        async ([user, char]) => {
+          const thisGame =
+            context.getStore()?.thisGame ?? YEET("No game in this server");
+
+          await db
+            .insert(users)
+            .values({ discordId: user.value })
+            .onConflictDoNothing();
+          await db
+            .insert(gamesUsers)
+            .values({ gameId: thisGame.id, userId: user.value })
+            .onConflictDoNothing();
+          await db
+            .insert(userPlayers)
+            .values({ discordId: user.value, characterId: char.value });
+
+          const [character] = await db
+            .select()
+            .from(characters)
+            .where(eq(characters.id, char.value));
+
+          return {
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: character
+                ? `Assigned ${character.name} to <@${user.value}>`
+                : "Character not found",
+              flags: InteractionResponseFlags.EPHEMERAL,
+            },
+          };
+        }
+      ),
+      discordRoute(
+        "tokens",
+        z.tuple([schema.stringOption, schema.integerOption]),
+        async ([char, tkns]) => {
+          const thisGame =
+            context.getStore()?.thisGame ?? YEET("No game in this server");
+
+          const { id } = (
+            await db
+              .select()
+              .from(characters)
+              .where(
+                and(
+                  eq(characters.name, char.value.toLowerCase()),
+                  eq(characters.gameId, thisGame.id)
+                )
+              )
+          )[0];
+
+          if (!id) throw new Error("Character not found!");
+
+          await db
+            .update(tokenCount)
+            .set({ tokens: tkns.value })
+            .where(eq(tokenCount.characterId, id));
+
+          return {
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `${capitalize(char.value)} has ${tkns.value} tokens`,
+              flags: InteractionResponseFlags.EPHEMERAL,
+            },
+          };
+        }
+      ),
+    ]),
+    discordRoute("create", z.tuple([schema.subcommand]), [
+      discordRoute(
+        "character",
+        z.tuple([schema.stringOption]),
+        async ([name]) => {
+          const thisGame =
+            context.getStore()?.thisGame ?? YEET("No game in this server");
+
+          const [{ id: characterId }] = await db
+            .insert(characters)
+            .values({
+              name: name.value.toLowerCase(),
+              gameId: thisGame.id,
+            })
+            .returning();
+          await db.insert(tokenCount).values({ characterId });
+
+          return {
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `Created new character: ${name.value}`,
+              flags: InteractionResponseFlags.EPHEMERAL,
+            },
+          };
+        }
+      ),
+    ]),
+  ]),
 ]);
 
 export const discordEndpoint = (app: Elysia) =>
@@ -206,339 +449,7 @@ export const discordEndpoint = (app: Elysia) =>
         return res;
       }
 
-      switch (name) {
-        case "gm": {
-          const option0 = schema.subcommandOption.parse(data.options?.[0]);
-
-          switch (option0.name) {
-            case "game": {
-              const option1 = schema.subcommand.parse(option0.options?.[0]);
-
-              switch (option1.name) {
-                case "init": {
-                  await db.insert(games).values({
-                    discordServerId: guild_id,
-                    gmDiscordId: member.user.id,
-                  });
-
-                  return {
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: {
-                      content: `Started a new game run by <@${member.user.id}>`,
-                      flags: InteractionResponseFlags.EPHEMERAL,
-                    },
-                  };
-                }
-                case "info": {
-                  const [thisGame] = await selectGame.execute({ guild_id });
-
-                  return {
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: {
-                      content: thisGame
-                        ? `This server has a game run by <@${thisGame.gmDiscordId}>`
-                        : "No game running in this server",
-                      flags: InteractionResponseFlags.EPHEMERAL,
-                    },
-                  };
-                }
-              }
-            }
-            case "assign": {
-              const option1 = schema.subcommand.parse(option0.options?.[0]);
-
-              switch (option1.name) {
-                case "character": {
-                  try {
-                    const [user, { value: characterId }] = z
-                      .tuple([schema.userOption, schema.stringOption])
-                      .parse(option1.options);
-
-                    const [thisGame] = await selectGame.execute({ guild_id });
-                    if (!thisGame) throw new Error("No game in this server");
-
-                    await db
-                      .insert(users)
-                      .values({ discordId: user.value })
-                      .onConflictDoNothing();
-                    await db
-                      .insert(gamesUsers)
-                      .values({ gameId: thisGame.id, userId: user.value })
-                      .onConflictDoNothing();
-                    await db
-                      .insert(userPlayers)
-                      .values({ discordId: user.value, characterId });
-
-                    const [character] = await db
-                      .select()
-                      .from(characters)
-                      .where(eq(characters.id, characterId));
-
-                    return {
-                      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                      data: {
-                        content: character
-                          ? `Assigned ${character.name} to <@${user.value}>`
-                          : "Character not found",
-                        flags: InteractionResponseFlags.EPHEMERAL,
-                      },
-                    };
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }
-                case "tokens": {
-                  const [char, tokens] = z
-                    .tuple([schema.stringOption, schema.integerOption])
-                    .parse(option1.options);
-
-                  const [thisGame] = await db
-                    .select()
-                    .from(games)
-                    .where(eq(games.discordServerId, guild_id));
-                  if (!thisGame) throw new Error("No game in this server");
-
-                  const { id } = (
-                    await db
-                      .select()
-                      .from(characters)
-                      .where(
-                        and(
-                          eq(characters.name, char.value.toLowerCase()),
-                          eq(characters.gameId, thisGame.id)
-                        )
-                      )
-                  )[0];
-
-                  if (!id) throw new Error("Character not found!");
-
-                  await db
-                    .update(tokenCount)
-                    .set({ tokens: tokens.value })
-                    .where(eq(tokenCount.characterId, id));
-
-                  return {
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: {
-                      content: `${capitalize(char.value)} has ${
-                        tokens.value
-                      } tokens`,
-                      flags: InteractionResponseFlags.EPHEMERAL,
-                    },
-                  };
-                }
-                default:
-                  throw new Error("Missing assign subcommand!");
-              }
-            }
-            case "create": {
-              const option1 = schema.subcommand.parse(option0.options?.[0]);
-
-              switch (option1.name) {
-                case "character": {
-                  const [{ value: name }] = z
-                    .tuple([schema.stringOption])
-                    .parse(option1.options);
-
-                  const [thisGame] = await selectGame.execute({ guild_id });
-
-                  if (!thisGame) throw new Error("No game in this server");
-
-                  const [{ id: characterId }] = await db
-                    .insert(characters)
-                    .values({
-                      name: name.toLowerCase(),
-                      gameId: thisGame.id,
-                    })
-                    .returning();
-                  await db.insert(tokenCount).values({ characterId });
-
-                  return {
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: {
-                      content: `Created new character: ${name}`,
-                      flags: InteractionResponseFlags.EPHEMERAL,
-                    },
-                  };
-                }
-                default:
-                  throw new Error("wtf");
-              }
-            }
-            default:
-              throw new Error("Missing gm subcommand!");
-          }
-        }
-        case "moves":
-          const [{ value: character }, { value: action }, { value: moves }] = z
-            .tuple([
-              schema.stringOption,
-              schema.stringOption,
-              schema.stringOption,
-            ])
-            .parse(data.options);
-          if (action === "list") {
-            const m = movesSchema.parse(moves);
-            const general = generalMoves[m];
-            const c = nerdSchema.parse(character);
-            const unique = uniqueMoves[c][m];
-
-            return {
-              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: `${general.concat(unique).map((g) => `\n- ${g}`)}`,
-                components: [
-                  {
-                    type: MessageComponentTypes.ACTION_ROW,
-                    components: [
-                      {
-                        type: MessageComponentTypes.BUTTON,
-                        label: "Make a Strong Move",
-                        style: 2,
-                        emoji: {
-                          id: null,
-                          name: "💪",
-                          animated: false,
-                        },
-                        custom_id: `move-strong-${c}`,
-                      },
-                      {
-                        type: MessageComponentTypes.BUTTON,
-                        label: "Make a Normal Move",
-                        style: 2,
-                        emoji: {
-                          id: null,
-                          name: "😐",
-                          animated: false,
-                        },
-                        custom_id: `move-normal-${c}`,
-                      },
-                      {
-                        type: MessageComponentTypes.BUTTON,
-                        label: "Make a Weak Move",
-                        style: 2,
-                        emoji: {
-                          id: null,
-                          name: "😭",
-                          animated: false,
-                        },
-                        custom_id: `move-weak-${c}`,
-                      },
-                    ],
-                  },
-                ],
-                flags: InteractionResponseFlags.EPHEMERAL,
-              },
-            };
-          } else if (action === "do") {
-            const c = nerdSchema.parse(character);
-
-            const [thisGame] = await selectGame.execute({ guild_id });
-
-            if (!thisGame) throw new Error("No game in this server");
-
-            const count = await selectCharacterTokens.get({
-              name: c,
-              gameId: thisGame.id,
-            });
-
-            if (!count) throw new Error("Character not found!");
-            if (!count.tokenCount) throw new Error("Tokens not found!");
-
-            if (moves === "strongMoves") {
-              if (count.tokenCount.tokens < 1) {
-                return {
-                  type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                  data: {
-                    content: `${capitalize(
-                      c
-                    )} can't make a strong move without a token!`,
-                  },
-                };
-              } else {
-                await db
-                  .update(tokenCount)
-                  .set({ tokens: count.tokenCount.tokens - 1 })
-                  .where(
-                    eq(tokenCount.characterId, count.tokenCount.characterId)
-                  );
-              }
-
-              return {
-                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: {
-                  content: `${capitalize(
-                    c
-                  )} has spent a token and made a strong move!`,
-                },
-              };
-            } else if (moves === "weakMoves") {
-              await db
-                .update(tokenCount)
-                .set({ tokens: count.tokenCount.tokens + 1 })
-                .where(
-                  eq(tokenCount.characterId, count.tokenCount.characterId)
-                );
-
-              return {
-                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: {
-                  content: `${capitalize(
-                    c
-                  )} has made a weak move and earned a token!`,
-                },
-              };
-            } else if (moves === "normalMoves") {
-              return {
-                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: {
-                  content: `${capitalize(c)} has made a normal move.`,
-                },
-              };
-            } else if (moves === "socialMoves") {
-              return {
-                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: {
-                  content: `${capitalize(
-                    c
-                  )} has made a normal move? Ask Chris what happens next.`,
-                },
-              };
-            }
-          }
-          break;
-        case "list":
-          {
-            const option1 = schema.subcommand.parse(data.options?.[0]);
-
-            const [thisGame] = await selectGame.execute({ guild_id });
-            if (!thisGame) throw new Error("No game in this server");
-
-            if (option1.name === "players") {
-              try {
-                const playerList = await db
-                  .select()
-                  .from(users)
-                  .innerJoin(gamesUsers, eq(gamesUsers.userId, users.discordId))
-                  .where(eq(gamesUsers.gameId, thisGame.id));
-
-                return {
-                  type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                  data: {
-                    content:
-                      "- " + playerList.map((p) => `<@${p.users.discordId}>`),
-                    flags: InteractionResponseFlags.EPHEMERAL,
-                  },
-                };
-              } catch (err) {
-                console.log(err);
-              }
-            }
-          }
-          break;
-        default:
-          throw new Error("wtf");
-      }
+      YEET("Missed a Discord command");
     } else if (type === InteractionType.MESSAGE_COMPONENT) {
       return {
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
