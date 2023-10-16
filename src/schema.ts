@@ -1,8 +1,8 @@
 import { z } from "zod";
 import {
+  ActionRow,
   InteractionResponseFlags,
   InteractionResponseType,
-  MessageComponentTypes,
 } from "discord-interactions";
 
 export const member = z.object({
@@ -63,9 +63,12 @@ export const userOption = z
 
 export const subcommandOption = z.union([subcommand, subcommandGroup]);
 
-export const autoCompletableOption = z.union([stringOption, integerOption]);
+export const autoCompletableOption = z.discriminatedUnion("type", [
+  stringOption,
+  integerOption,
+]);
 
-export const flagOption = z.union([
+export const flagOption = z.discriminatedUnion("type", [
   stringOption,
   integerOption,
   booleanOption,
@@ -119,7 +122,7 @@ export const autoCompleteInteraction = z.object({
   data: messageData,
 });
 
-export const interaction = z.union([
+export const interaction = z.discriminatedUnion("type", [
   ping,
   messageInteraction,
   messageComponentInteraction,
@@ -131,9 +134,7 @@ export type InteractionResponse = {
   type: InteractionResponseType;
   data: {
     content?: string;
-    components?: {
-      type: MessageComponentTypes;
-    }[];
+    components?: ActionRow[];
     flags?: InteractionResponseFlags;
   };
 };

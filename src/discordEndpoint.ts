@@ -192,7 +192,7 @@ const discordRouter = discordRouterRoot([
                     label: "Make a Strong Move",
                     style: 2,
                     emoji: {
-                      id: null,
+                      id: undefined,
                       name: "💪",
                       animated: false,
                     },
@@ -203,7 +203,7 @@ const discordRouter = discordRouterRoot([
                     label: "Make a Normal Move",
                     style: 2,
                     emoji: {
-                      id: null,
+                      id: undefined,
                       name: "😐",
                       animated: false,
                     },
@@ -214,7 +214,7 @@ const discordRouter = discordRouterRoot([
                     label: "Make a Weak Move",
                     style: 2,
                     emoji: {
-                      id: null,
+                      id: undefined,
                       name: "😭",
                       animated: false,
                     },
