@@ -6,9 +6,8 @@ import {
   InteractionType,
   MessageComponentTypes,
   InteractionResponseFlags,
-  EmojiInfo,
 } from "discord-interactions";
-import { eq, and, like } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { AsyncLocalStorage } from "async_hooks";
 
 import {
@@ -30,11 +29,7 @@ import {
   games,
   gamesUsers,
 } from "./db/schema";
-import {
-  selectAllCharacterTokens,
-  selectCharacterTokens,
-  selectGame,
-} from "./queries";
+import * as queries from "./queries";
 import { env } from "./env";
 import { capitalize } from "./utils";
 
@@ -96,10 +91,9 @@ const discordRouter = discordRouterRoot({
         const thisGame =
           context.getStore()?.thisGame ?? YEET("No game in this server");
 
-        const characterList = await db
-          .select()
-          .from(characters)
-          .where(eq(characters.gameId, thisGame.id));
+        const characterList = await queries.selectGameCharacters.execute({
+          gameId: thisGame.id,
+        });
 
         return {
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -114,11 +108,9 @@ const discordRouter = discordRouterRoot({
         const thisGame =
           context.getStore()?.thisGame ?? YEET("No game in this server");
 
-        const playerList = await db
-          .select()
-          .from(users)
-          .innerJoin(gamesUsers, eq(gamesUsers.userId, users.discordId))
-          .where(eq(gamesUsers.gameId, thisGame.id));
+        const playerList = await queries.selectGameUsers.execute({
+          gameId: thisGame.id,
+        });
 
         return {
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -140,7 +132,7 @@ const discordRouter = discordRouterRoot({
       if (!thisGame) throw new Error("No game in this server");
 
       if (thisGame.gmDiscordId === interaction.member.user.id) {
-        const count = await selectAllCharacterTokens.execute({
+        const count = await queries.selectAllCharacterTokens.execute({
           gameId: thisGame.id,
         });
 
@@ -188,10 +180,9 @@ const discordRouter = discordRouterRoot({
           try {
             const m = movesSchema.parse(mov.value);
             const general = generalMoves[m];
-            const [c] = await db
-              .select()
-              .from(characters)
-              .where(eq(characters.id, char.value));
+            const [c] = await queries.selectCharacterById.execute({
+              charId: char.value,
+            });
             if (!c) YEET("Character not found");
             const name = c.name;
             const isKey = (n: string): n is keyof typeof uniqueMoves =>
@@ -243,7 +234,7 @@ const discordRouter = discordRouterRoot({
           const thisGame = context.getStore()?.thisGame;
           if (!thisGame) throw new Error("No game in this server");
 
-          const count = await selectCharacterTokens.get({
+          const [count] = await queries.selectCharacterWithTokens.execute({
             name: c,
             gameId: thisGame.id,
           });
@@ -258,22 +249,20 @@ const discordRouter = discordRouterRoot({
                 c
               )} can't make a strong move without a token!`;
             } else {
-              await db
-                .update(tokenCount)
-                .set({ tokens: count.tokenCount.tokens - 1 })
-                .where(
-                  eq(tokenCount.characterId, count.tokenCount.characterId)
-                );
+              await queries.updateTokenCount(
+                count.tokenCount.characterId,
+                count.tokenCount.tokens - 1
+              );
             }
 
             content = `${capitalize(
               c
             )} has spent a token and made a strong move!`;
           } else if (mov.value === "weakMoves") {
-            await db
-              .update(tokenCount)
-              .set({ tokens: count.tokenCount.tokens + 1 })
-              .where(eq(tokenCount.characterId, count.tokenCount.characterId));
+            await queries.updateTokenCount(
+              count.tokenCount.characterId,
+              count.tokenCount.tokens + 1
+            );
 
             content = `${capitalize(
               c
@@ -293,8 +282,8 @@ const discordRouter = discordRouterRoot({
         }
       }
     ),
-    discordRoute("gm", z.tuple([subgroup]), [
-      discordRoute("game", z.tuple([sub]), [
+    discordRoute("gm", subgroup, [
+      discordRoute("game", sub, [
         discordRoute("init", z.tuple([]), async () => {
           const { interaction: i } =
             context.getStore() ?? YEET("Fucking context");
@@ -351,10 +340,9 @@ const discordRouter = discordRouterRoot({
               .insert(userPlayers)
               .values({ discordId: user.value, characterId: char.value });
 
-            const [character] = await db
-              .select()
-              .from(characters)
-              .where(eq(characters.id, char.value));
+            const [character] = await queries.selectCharacterById.execute({
+              charId: char.value,
+            });
 
             return {
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -371,32 +359,20 @@ const discordRouter = discordRouterRoot({
           "tokens",
           z.tuple([schema.stringOption, schema.integerOption]),
           async ([char, tkns]) => {
-            const thisGame =
-              context.getStore()?.thisGame ?? YEET("No game in this server");
+            const [character] = await queries.selectCharacterById.execute({
+              charId: char.value,
+            });
 
-            const { id } = (
-              await db
-                .select()
-                .from(characters)
-                .where(
-                  and(
-                    eq(characters.name, char.value.toLowerCase()),
-                    eq(characters.gameId, thisGame.id)
-                  )
-                )
-            )[0];
+            if (!character) throw new Error("Character not found!");
 
-            if (!id) throw new Error("Character not found!");
-
-            await db
-              .update(tokenCount)
-              .set({ tokens: tkns.value })
-              .where(eq(tokenCount.characterId, id));
+            await queries.updateTokenCount(character.id, tkns.value);
 
             return {
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
               data: {
-                content: `${capitalize(char.value)} has ${tkns.value} tokens`,
+                content: `${capitalize(character.name)} has ${
+                  tkns.value
+                } tokens`,
                 flags: InteractionResponseFlags.EPHEMERAL,
               },
             };
@@ -455,16 +431,11 @@ const discordRouter = discordRouterRoot({
 
             const { value } = focusedOption;
 
-            const filteredCharacters = await db
-              .select()
-              .from(characters)
-              .innerJoin(games, eq(characters.gameId, games.id))
-              .where(
-                and(
-                  eq(games.discordServerId, guild_id),
-                  like(characters.name, `%${value.toLowerCase()}%`)
-                )
-              );
+            const filteredCharacters =
+              await queries.searchCharacterByName.execute({
+                guild_id,
+                name: value.toLowerCase(),
+              });
 
             return {
               type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
@@ -496,16 +467,10 @@ const discordRouter = discordRouterRoot({
 
         const { value } = focusedOption;
 
-        const filteredCharacters = await db
-          .select()
-          .from(characters)
-          .innerJoin(games, eq(characters.gameId, games.id))
-          .where(
-            and(
-              eq(games.discordServerId, guild_id),
-              like(characters.name, `%${value.toLowerCase()}%`)
-            )
-          );
+        const filteredCharacters = await queries.searchCharacterByName.execute({
+          guild_id,
+          name: value.toLowerCase(),
+        });
 
         return {
           type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
@@ -539,18 +504,24 @@ export const discordEndpoint = (app: Elysia) =>
       throw new Error("Bad request signature");
     }
 
-    console.log(req.body);
+    // console.log(req.body);
 
-    const interaction = schema.interaction.parse(req.body);
+    try {
+      const interaction = schema.interaction.parse(req.body);
 
-    const res = await discordRouter(interaction, context, async () => {
-      const [thisGame] =
-        interaction.type === InteractionType.PING
-          ? [undefined]
-          : await selectGame.execute({ guild_id: interaction.guild_id });
-      return { thisGame };
-    });
-    if (res) {
-      return res;
+      const res = await discordRouter(interaction, context, async () => {
+        const [thisGame] =
+          interaction.type === InteractionType.PING
+            ? [undefined]
+            : await queries.selectGame.execute({
+                guild_id: interaction.guild_id,
+              });
+        return { thisGame };
+      });
+      if (res) {
+        return res;
+      }
+    } catch (err) {
+      console.error(err);
     }
   });
