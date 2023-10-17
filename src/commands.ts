@@ -123,6 +123,7 @@ const COMMANDS = [
         description: "(Required) Name of a character in game",
         required: true,
         type: OPTION_TYPE.STRING,
+        autocomplete: true,
       },
       {
         name: "action",

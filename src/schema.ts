@@ -67,6 +67,7 @@ export const autoCompletableOption = z.discriminatedUnion("type", [
   stringOption,
   integerOption,
 ]);
+export type AutoCompletableOption = z.infer<typeof autoCompletableOption>;
 
 export const flagOption = z.discriminatedUnion("type", [
   stringOption,
@@ -91,7 +92,7 @@ export type DiscordOptions = z.infer<typeof discordOptions>;
 
 export const messageComponentInteractionData = z.object({
   custom_id: z.string(),
-  values: z.array(z.string()),
+  values: z.array(z.string()).optional(),
 });
 
 export const ping = z.object({
@@ -130,11 +131,25 @@ export const interaction = z.discriminatedUnion("type", [
 ]);
 export type Interaction = z.infer<typeof interaction>;
 
-export type InteractionResponse = {
-  type: InteractionResponseType;
+export type MessageInteractionResponse = {
+  type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE;
   data: {
     content?: string;
     components?: ActionRow[];
     flags?: InteractionResponseFlags;
   };
 };
+
+export type AutoCompleteInteractionResponse = {
+  type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT;
+  data: {
+    choices: {
+      name: string;
+      value: string;
+    }[];
+  };
+};
+
+export type InteractionResponse =
+  | MessageInteractionResponse
+  | AutoCompleteInteractionResponse;
