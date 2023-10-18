@@ -27,7 +27,7 @@ export const searchCharacterByName = selectCharacters()
   .where(
     and(
       eq(games.discordServerId, sql.placeholder("guild_id")),
-      like(characters.name, `%${sql.placeholder("name")}%`)
+      like(characters.name, sql.placeholder("name"))
     )
   )
   .prepare();

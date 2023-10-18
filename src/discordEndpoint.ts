@@ -469,7 +469,7 @@ const discordRouter = discordRouterRoot({
 
         const filteredCharacters = await queries.searchCharacterByName.execute({
           guild_id,
-          name: value.toLowerCase(),
+          name: `%${value.toLowerCase()}%`,
         });
 
         return {
