@@ -5,17 +5,13 @@ import { AsyncLocalStorage } from "async_hooks";
 import * as schema from "./schema";
 import { InteractionResponseType, InteractionType } from "discord-interactions";
 
-type DiscordRouteHandler<
-  A extends z.ZodTypeAny = typeof schema.discordOptions
-> = (a: z.infer<A>) => Promise<schema.InteractionResponse | void>;
+type DiscordRouteHandler = (
+  ...args: any[]
+) => Promise<schema.InteractionResponse>;
 type DiscordRoute = [string, DiscordRouteHandler];
 
 interface DiscordRouteFn {
-  <Z extends z.ZodTypeAny>(
-    path: string,
-    parser: Z,
-    handler: DiscordRouteHandler<Z> | DiscordRoute[]
-  ): DiscordRoute;
+  (path: string, handler: DiscordRouteHandler | DiscordRoute[]): DiscordRoute;
 }
 
 const reduceRoutes = (
@@ -26,28 +22,26 @@ const reduceRoutes = (
   return acc;
 };
 
-export const discordRoute: DiscordRouteFn = (path, parser, handler) => {
+export const discordRoute: DiscordRouteFn = (path, handler) => {
   if (typeof handler === "function") {
-    const fnHandler = async (opt: schema.DiscordOptions) => {
-      const parsedOpt = parser.parse(opt);
-      return handler(parsedOpt);
-    };
-
-    return [path, fnHandler];
+    return [path, handler];
   }
 
-  const server = handler.reduce(reduceRoutes, new Map());
+  const server = handler.reduce(
+    reduceRoutes,
+    new Map<string, DiscordRouteHandler>()
+  );
 
   const fnHandler = async (opt: schema.DiscordOptions) => {
-    const [parsedOpt] = parser.parse(opt);
+    const [parsedOpt] = z.union([sub, subgroup]).parse(opt);
     const route = server.get(parsedOpt.name);
 
     if (!route) throw new Error("Route not found");
 
-    return await route(parsedOpt.options ?? []);
+    return route(parsedOpt.options ?? []);
   };
 
-  return [path, fnHandler];
+  return [path, fnHandler] satisfies DiscordRoute;
 };
 
 export type DiscordContext<
@@ -95,12 +89,14 @@ export const discordRouterRoot = (handlers: {
 
         return handler(data.options ?? []);
       } else if (interaction.type === InteractionType.MESSAGE_COMPONENT) {
-        const custom_id = interaction.data.custom_id;
+        console.log(interaction);
 
-        const handler = componentServer.get(custom_id);
+        const handler = componentServer.get(
+          interaction.message.interaction.name
+        );
         if (!handler) throw new Error("Route not found");
 
-        return handler([]);
+        return handler([interaction.data]);
       } else if (
         interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE
       ) {

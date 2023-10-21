@@ -18,7 +18,6 @@ import {
   sub,
   subgroup,
 } from "./discord-router";
-import { players } from "./tokens";
 import { generalMoves, uniqueMoves } from "./moves";
 import { db } from "./db";
 import {
@@ -33,7 +32,6 @@ import * as queries from "./queries";
 import { env } from "./env";
 import { capitalize } from "./utils";
 
-const nerdSchema = z.enum(players);
 const movesSchema = z.enum([
   "strongMoves",
   "normalMoves",
@@ -41,20 +39,13 @@ const movesSchema = z.enum([
   "socialMoves",
 ]);
 
-const choiceSchema = z
-  .object({
-    name: z.string(),
-    value: nerdSchema,
-  })
-  .optional();
-
 const UNDER_CONSTRUCTION_RESP = {
   type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
   data: {
     content: "Working, but not implemented",
     flags: InteractionResponseFlags.EPHEMERAL,
   },
-};
+} as const;
 
 const YEET = (e: string) => {
   throw new Error(e);
@@ -86,8 +77,8 @@ const context = new AsyncLocalStorage<
 
 const discordRouter = discordRouterRoot({
   applicationCmds: [
-    discordRoute("list", sub, [
-      discordRoute("characters", z.tuple([]), async () => {
+    discordRoute("list", [
+      discordRoute("characters", async () => {
         const thisGame =
           context.getStore()?.thisGame ?? YEET("No game in this server");
 
@@ -96,15 +87,15 @@ const discordRouter = discordRouterRoot({
         });
 
         return {
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          type: 4,
           data: {
             content:
               "- " + characterList.map((c) => capitalize(c.name)).join("\n- "),
             flags: InteractionResponseFlags.EPHEMERAL,
           },
-        };
+        } satisfies schema.MessageInteractionResponse;
       }),
-      discordRoute("players", z.tuple([]), async () => {
+      discordRoute("players", async () => {
         const thisGame =
           context.getStore()?.thisGame ?? YEET("No game in this server");
 
@@ -120,10 +111,10 @@ const discordRouter = discordRouterRoot({
               playerList.map((p) => `<@${p.users.discordId}>`).join("\n- "),
             flags: InteractionResponseFlags.EPHEMERAL,
           },
-        };
+        } satisfies schema.MessageInteractionResponse;
       }),
     ]),
-    discordRoute("tokens", z.tuple([]), async () => {
+    discordRoute("tokens", async () => {
       const { interaction: i, thisGame } =
         context.getStore() ?? YEET("Fucking context");
       const interaction = i.type === 2 ? i : YEET("Wrong interaction type");
@@ -142,7 +133,7 @@ const discordRouter = discordRouterRoot({
             content: getTokenContent(count),
             flags: InteractionResponseFlags.EPHEMERAL,
           },
-        };
+        } satisfies schema.MessageInteractionResponse;
       } else {
         const [count] = await db
           .select()
@@ -166,18 +157,19 @@ const discordRouter = discordRouterRoot({
             } token${count.tokenCount.tokens > 1 ? "s" : ""}!`,
             flags: InteractionResponseFlags.EPHEMERAL,
           },
-        };
+        } satisfies schema.MessageInteractionResponse;
       }
     }),
     discordRoute(
       "moves",
-      z.tuple([schema.stringOption, schema.stringOption, schema.stringOption]),
-      async ([char, act, mov]) => {
-        const { thisGame } = context.getStore() ?? YEET("Fucking context");
-        if (!thisGame) YEET("No game in this server");
+      z
+        .function()
+        .args(schema.stringOption, schema.stringOption, schema.stringOption)
+        .implement(async (char, act, mov) => {
+          const { thisGame } = context.getStore() ?? YEET("Fucking context");
+          if (!thisGame) YEET("No game in this server");
 
-        if (act.value === "list") {
-          try {
+          if (act.value === "list") {
             const m = movesSchema.parse(mov.value);
             const general = generalMoves[m];
             const [c] = await queries.selectCharacterById.execute({
@@ -224,67 +216,68 @@ const discordRouter = discordRouterRoot({
                 ],
                 flags: InteractionResponseFlags.EPHEMERAL,
               },
-            };
-          } catch (err) {
-            console.error(err);
-          }
-        } else if (act.value === "do") {
-          const c = nerdSchema.parse(char.value);
+            } satisfies schema.MessageInteractionResponse;
+          } else if (act.value === "do") {
+            const thisGame = context.getStore()?.thisGame;
+            if (!thisGame) throw new Error("No game in this server");
 
-          const thisGame = context.getStore()?.thisGame;
-          if (!thisGame) throw new Error("No game in this server");
+            const [character] = await queries.selectCharacterById.execute({
+              charId: char.value,
+            });
 
-          const [count] = await queries.selectCharacterWithTokens.execute({
-            name: c,
-            gameId: thisGame.id,
-          });
+            const [count] = await queries.selectCharacterWithTokens.execute({
+              name: character.name,
+              gameId: thisGame.id,
+            });
 
-          if (!count) throw new Error("Character not found!");
-          if (!count.tokenCount) throw new Error("Tokens not found!");
+            if (!count) throw new Error("Character not found!");
+            if (!count.tokenCount) throw new Error("Tokens not found!");
 
-          let content;
-          if (mov.value === "strongMoves") {
-            if (count.tokenCount.tokens < 1) {
+            let content;
+            if (mov.value === "strongMoves") {
+              if (count.tokenCount.tokens < 1) {
+                content = `${capitalize(
+                  character.name
+                )} can't make a strong move without a token!`;
+              } else {
+                await queries.updateTokenCount(
+                  count.tokenCount.characterId,
+                  count.tokenCount.tokens - 1
+                );
+              }
+
               content = `${capitalize(
-                c
-              )} can't make a strong move without a token!`;
-            } else {
+                character.name
+              )} has spent a token and made a strong move!`;
+            } else if (mov.value === "weakMoves") {
               await queries.updateTokenCount(
                 count.tokenCount.characterId,
-                count.tokenCount.tokens - 1
+                count.tokenCount.tokens + 1
               );
+
+              content = `${capitalize(
+                character.name
+              )} has made a weak move and earned a token!`;
+            } else if (mov.value === "normalMoves") {
+              content = `${capitalize(character.name)} has made a normal move.`;
+            } else if (mov.value === "socialMoves") {
+              content = `${capitalize(
+                character.name
+              )} has made a normal move? Ask your GM what happens next.`;
             }
 
-            content = `${capitalize(
-              c
-            )} has spent a token and made a strong move!`;
-          } else if (mov.value === "weakMoves") {
-            await queries.updateTokenCount(
-              count.tokenCount.characterId,
-              count.tokenCount.tokens + 1
-            );
-
-            content = `${capitalize(
-              c
-            )} has made a weak move and earned a token!`;
-          } else if (mov.value === "normalMoves") {
-            content = `${capitalize(c)} has made a normal move.`;
-          } else if (mov.value === "socialMoves") {
-            content = `${capitalize(
-              c
-            )} has made a normal move? Ask your GM what happens next.`;
+            return {
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { content },
+            } satisfies schema.MessageInteractionResponse;
           }
 
-          return {
-            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-            data: { content },
-          };
-        }
-      }
+          throw new Error("Shouldn't be here");
+        })
     ),
-    discordRoute("gm", subgroup, [
-      discordRoute("game", sub, [
-        discordRoute("init", z.tuple([]), async () => {
+    discordRoute("gm", [
+      discordRoute("game", [
+        discordRoute("init", async () => {
           const { interaction: i } =
             context.getStore() ?? YEET("Fucking context");
           const interaction =
@@ -303,9 +296,9 @@ const discordRouter = discordRouterRoot({
               content: `Started a new game run by <@${interaction.member.user.id}>`,
               flags: InteractionResponseFlags.EPHEMERAL,
             },
-          };
+          } satisfies schema.MessageInteractionResponse;
         }),
-        discordRoute("info", z.tuple([]), async () => {
+        discordRoute("info", async () => {
           const thisGame =
             context.getStore()?.thisGame ?? YEET("Fucking context");
 
@@ -317,171 +310,178 @@ const discordRouter = discordRouterRoot({
                 : "No game running in this server",
               flags: InteractionResponseFlags.EPHEMERAL,
             },
-          };
+          } satisfies schema.MessageInteractionResponse;
         }),
       ]),
-      discordRoute("assign", sub, [
+      discordRoute("assign", [
         discordRoute(
           "character",
-          z.tuple([schema.userOption, schema.stringOption]),
-          async ([user, char]) => {
-            const thisGame =
-              context.getStore()?.thisGame ?? YEET("No game in this server");
+          z
+            .function()
+            .args(schema.userOption, schema.stringOption)
+            .implement(async (user, char) => {
+              const thisGame =
+                context.getStore()?.thisGame ?? YEET("No game in this server");
 
-            await db
-              .insert(users)
-              .values({ discordId: user.value })
-              .onConflictDoNothing();
-            await db
-              .insert(gamesUsers)
-              .values({ gameId: thisGame.id, userId: user.value })
-              .onConflictDoNothing();
-            await db
-              .insert(userPlayers)
-              .values({ discordId: user.value, characterId: char.value });
+              await db
+                .insert(users)
+                .values({ discordId: user.value })
+                .onConflictDoNothing();
+              await db
+                .insert(gamesUsers)
+                .values({ gameId: thisGame.id, userId: user.value })
+                .onConflictDoNothing();
+              await db
+                .insert(userPlayers)
+                .values({ discordId: user.value, characterId: char.value });
 
-            const [character] = await queries.selectCharacterById.execute({
-              charId: char.value,
-            });
+              const [character] = await queries.selectCharacterById.execute({
+                charId: char.value,
+              });
 
-            return {
-              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: character
-                  ? `Assigned ${character.name} to <@${user.value}>`
-                  : "Character not found",
-                flags: InteractionResponseFlags.EPHEMERAL,
-              },
-            };
-          }
+              return {
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: {
+                  content: character
+                    ? `Assigned ${character.name} to <@${user.value}>`
+                    : "Character not found",
+                  flags: InteractionResponseFlags.EPHEMERAL,
+                },
+              } satisfies schema.MessageInteractionResponse;
+            })
         ),
         discordRoute(
           "tokens",
-          z.tuple([schema.stringOption, schema.integerOption]),
-          async ([char, tkns]) => {
-            const [character] = await queries.selectCharacterById.execute({
-              charId: char.value,
-            });
+          z
+            .function()
+            .args(schema.stringOption, schema.integerOption)
+            .implement(async (char, tkns) => {
+              const [character] = await queries.selectCharacterById.execute({
+                charId: char.value,
+              });
 
-            if (!character) throw new Error("Character not found!");
+              if (!character) throw new Error("Character not found!");
 
-            await queries.updateTokenCount(character.id, tkns.value);
+              await queries.updateTokenCount(character.id, tkns.value);
 
-            return {
-              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: `${capitalize(character.name)} has ${
-                  tkns.value
-                } tokens`,
-                flags: InteractionResponseFlags.EPHEMERAL,
-              },
-            };
-          }
+              return {
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: {
+                  content: `${capitalize(character.name)} has ${
+                    tkns.value
+                  } tokens`,
+                  flags: InteractionResponseFlags.EPHEMERAL,
+                },
+              } satisfies schema.MessageInteractionResponse;
+            })
         ),
       ]),
-      discordRoute("create", sub, [
+      discordRoute("create", [
         discordRoute(
           "character",
-          z.tuple([schema.stringOption]),
-          async ([name]) => {
-            const thisGame =
-              context.getStore()?.thisGame ?? YEET("No game in this server");
+          z
+            .function()
+            .args(schema.stringOption)
+            .implement(async (name) => {
+              const thisGame =
+                context.getStore()?.thisGame ?? YEET("No game in this server");
 
-            const [{ id: characterId }] = await db
-              .insert(characters)
-              .values({
-                name: name.value.toLowerCase(),
-                gameId: thisGame.id,
-              })
-              .returning();
-            await db.insert(tokenCount).values({ characterId });
+              const [{ id: characterId }] = await db
+                .insert(characters)
+                .values({
+                  name: name.value.toLowerCase(),
+                  gameId: thisGame.id,
+                })
+                .returning();
+              await db.insert(tokenCount).values({ characterId });
 
-            return {
-              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: `Created new character: ${name.value}`,
-                flags: InteractionResponseFlags.EPHEMERAL,
-              },
-            };
-          }
+              return {
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: {
+                  content: `Created new character: ${name.value}`,
+                  flags: InteractionResponseFlags.EPHEMERAL,
+                },
+              } satisfies schema.MessageInteractionResponse;
+            })
         ),
       ]),
     ]),
   ],
-  componentCmds: [discordRoute("meme", z.tuple([]), async () => {})],
+  componentCmds: [
+    discordRoute("moves", async () => {
+      return UNDER_CONSTRUCTION_RESP;
+    }),
+  ],
   autocompleteCmds: [
-    discordRoute("gm", subgroup, [
-      discordRoute("assign", sub, [
+    discordRoute("gm", [
+      discordRoute("assign", [
         discordRoute(
           "tokens",
-          z.tuple([schema.stringOption]).rest(schema.integerOption),
-          async ([char]) => {
-            const { interaction: i } =
-              context.getStore() ?? YEET("Fucking context");
-            const interaction =
-              i.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE
-                ? i
-                : YEET("Wrong interaction type");
-
-            const { guild_id } = interaction;
-
-            const focusedOption = char.focused
-              ? char
-              : YEET("Option not focused");
-
-            const { value } = focusedOption;
-
-            const filteredCharacters =
-              await queries.searchCharacterByName.execute({
-                guild_id,
-                name: value.toLowerCase(),
-              });
-
-            return {
-              type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
-              data: {
-                choices: filteredCharacters.map((c) => ({
-                  name: c.characters.name.toUpperCase(),
-                  value: c.characters.id,
-                })),
-              },
-            };
-          }
+          z
+            .function()
+            .args(schema.stringOption)
+            .implement(async (char) => {
+              const { interaction: i } =
+                context.getStore() ?? YEET("Fucking context");
+              const interaction =
+                i.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE
+                  ? i
+                  : YEET("Wrong interaction type");
+              const { guild_id } = interaction;
+              const focusedOption = char.focused
+                ? char
+                : YEET("Option not focused");
+              const { value } = focusedOption;
+              const filteredCharacters =
+                await queries.searchCharacterByName.execute({
+                  guild_id,
+                  name: value.toLowerCase(),
+                });
+              return {
+                type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
+                data: {
+                  choices: filteredCharacters.map((c) => ({
+                    name: c.characters.name.toUpperCase(),
+                    value: c.characters.id,
+                  })),
+                },
+              } satisfies schema.AutoCompleteInteractionResponse;
+            })
         ),
       ]),
     ]),
     discordRoute(
       "moves",
-      z.tuple([schema.stringOption]).rest(schema.stringOption),
-      async ([char]) => {
-        const { interaction: i } =
-          context.getStore() ?? YEET("Fucking context");
-        const interaction =
-          i.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE
-            ? i
-            : YEET("Wrong interaction type");
-
-        const { guild_id } = interaction;
-
-        const focusedOption = char.focused ? char : YEET("Option not focused");
-
-        const { value } = focusedOption;
-
-        const filteredCharacters = await queries.searchCharacterByName.execute({
-          guild_id,
-          name: `%${value.toLowerCase()}%`,
-        });
-
-        return {
-          type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
-          data: {
-            choices: filteredCharacters.map((c) => ({
-              name: c.characters.name.toUpperCase(),
-              value: c.characters.id,
-            })),
-          },
-        };
-      }
+      z
+        .function()
+        .args(schema.stringOption)
+        .implement(async (char) => {
+          const { interaction: i } =
+            context.getStore() ?? YEET("Fucking context");
+          const interaction =
+            i.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE
+              ? i
+              : YEET("Wrong interaction type");
+          const { guild_id } = interaction;
+          const focusedOption = char.focused
+            ? char
+            : YEET("Option not focused");
+          const { value } = focusedOption;
+          const filteredCharacters =
+            await queries.searchCharacterByName.execute({
+              guild_id,
+              name: `%${value.toLowerCase()}%`,
+            });
+          return {
+            type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
+            data: {
+              choices: filteredCharacters.map((c) => ({
+                name: c.characters.name.toUpperCase(),
+                value: c.characters.id,
+              })),
+            },
+          } satisfies schema.AutoCompleteInteractionResponse;
+        })
     ),
   ],
 });
@@ -503,8 +503,6 @@ export const discordEndpoint = (app: Elysia) =>
       req.set.status = 401;
       throw new Error("Bad request signature");
     }
-
-    // console.log(req.body);
 
     try {
       const interaction = schema.interaction.parse(req.body);
