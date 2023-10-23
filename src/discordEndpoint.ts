@@ -406,7 +406,10 @@ const discordRouter = discordRouterRoot({
     ]),
   ],
   componentCmds: [
-    discordRoute("moves", async () => UNDER_CONSTRUCTION_RESP),
+    discordRoute("moves", async ({ data, message }) => {
+      console.log(message, data);
+      return UNDER_CONSTRUCTION_RESP;
+    }),
     discordRoute("move-strong", async () => {
       return UNDER_CONSTRUCTION_RESP;
     }),

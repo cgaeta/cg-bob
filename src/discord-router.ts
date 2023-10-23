@@ -95,7 +95,7 @@ export const discordRouterRoot = (handlers: {
         );
         if (!handler) throw new Error("Route not found");
 
-        return handler(interaction.data);
+        return handler(interaction);
       } else if (
         interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE
       ) {
