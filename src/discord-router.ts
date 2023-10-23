@@ -38,7 +38,7 @@ export const discordRoute: DiscordRouteFn = (path, handler) => {
 
     if (!route) throw new Error("Route not found");
 
-    return route(parsedOpt.options ?? []);
+    return route(...(parsedOpt.options ?? []));
   };
 
   return [path, fnHandler] satisfies DiscordRoute;
@@ -87,16 +87,14 @@ export const discordRouterRoot = (handlers: {
         const handler = applicationCommandServer.get(data.name);
         if (!handler) throw new Error("Route not found");
 
-        return handler(data.options ?? []);
+        return handler(...(data.options ?? []));
       } else if (interaction.type === InteractionType.MESSAGE_COMPONENT) {
-        console.log(interaction);
-
         const handler = componentServer.get(
           interaction.message.interaction.name
         );
         if (!handler) throw new Error("Route not found");
 
-        return handler([interaction.data]);
+        return handler(interaction.data);
       } else if (
         interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE
       ) {
@@ -105,7 +103,7 @@ export const discordRouterRoot = (handlers: {
         const handler = autoCompleteServer.get(data.name);
         if (!handler) throw new Error("Route not found");
 
-        return handler(data.options ?? []);
+        return handler(...(data.options ?? []));
       }
     });
   };
