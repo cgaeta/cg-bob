@@ -33,7 +33,7 @@ export const discordRoute: DiscordRouteFn = (path, handler) => {
   );
 
   const fnHandler = async (opt: schema.DiscordOptions) => {
-    const [parsedOpt] = z.union([sub, subgroup]).parse(opt);
+    const parsedOpt = subgroup.parse(opt);
     const route = server.get(parsedOpt.name);
 
     if (!route) throw new Error("Route not found");
@@ -89,6 +89,7 @@ export const discordRouterRoot = (handlers: {
 
         return handler(...(data.options ?? []));
       } else if (interaction.type === InteractionType.MESSAGE_COMPONENT) {
+        console.log(interaction);
         const handler = componentServer.get(
           interaction.message.interaction.name
         );
@@ -109,7 +110,6 @@ export const discordRouterRoot = (handlers: {
   };
 };
 
-export const sub = z.tuple([schema.subcommand]);
-export const subgroup = z.tuple([schema.subcommandGroup]);
+export const subgroup = z.union([schema.subcommand, schema.subcommandGroup]);
 
 export * as schema from "./schema";

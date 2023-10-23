@@ -15,8 +15,6 @@ import {
   discordRoute,
   type DiscordContext,
   schema,
-  sub,
-  subgroup,
 } from "./discord-router";
 import { generalMoves, uniqueMoves } from "./moves";
 import { db } from "./db";
@@ -87,7 +85,7 @@ const discordRouter = discordRouterRoot({
         });
 
         return {
-          type: 4,
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
             content:
               "- " + characterList.map((c) => capitalize(c.name)).join("\n- "),
@@ -195,21 +193,21 @@ const discordRouter = discordRouterRoot({
                         label: "Make a Strong Move",
                         style: 2,
                         emoji: emoji("💪"),
-                        custom_id: `move-strong-${c.name}`,
+                        custom_id: `move-strong`,
                       },
                       {
                         type: MessageComponentTypes.BUTTON,
                         label: "Make a Normal Move",
                         style: 2,
                         emoji: emoji("😐"),
-                        custom_id: `move-normal-${c.name}`,
+                        custom_id: `move-normal`,
                       },
                       {
                         type: MessageComponentTypes.BUTTON,
                         label: "Make a Weak Move",
                         style: 2,
                         emoji: emoji("😭"),
-                        custom_id: `move-weak-${c.name}`,
+                        custom_id: `move-weak`,
                       },
                     ],
                   },
@@ -268,7 +266,7 @@ const discordRouter = discordRouterRoot({
 
             return {
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: { content },
+              data: { content, flags: InteractionResponseFlags.EPHEMERAL },
             } satisfies schema.MessageInteractionResponse;
           }
 
@@ -408,7 +406,14 @@ const discordRouter = discordRouterRoot({
     ]),
   ],
   componentCmds: [
-    discordRoute("moves", async () => {
+    discordRoute("moves", async () => UNDER_CONSTRUCTION_RESP),
+    discordRoute("move-strong", async () => {
+      return UNDER_CONSTRUCTION_RESP;
+    }),
+    discordRoute("move-normal", async () => {
+      return UNDER_CONSTRUCTION_RESP;
+    }),
+    discordRoute("move-weak", async () => {
       return UNDER_CONSTRUCTION_RESP;
     }),
   ],
