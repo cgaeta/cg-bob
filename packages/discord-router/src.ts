@@ -44,11 +44,8 @@ export const discordRoute: DiscordRouteFn = (path, handler) => {
   return [path, fnHandler] satisfies DiscordRoute;
 };
 
-export type DiscordContext<
-  T extends Record<string, unknown> = {},
-  I extends schema.Interaction = schema.Interaction
-> = T & {
-  interaction: I;
+export type DiscordContext<T extends Record<string, unknown> = {}> = T & {
+  interaction: schema.Interaction;
 };
 
 export const discordRouterRoot = (handlers: {
@@ -69,12 +66,9 @@ export const discordRouterRoot = (handlers: {
     new Map()
   );
 
-  return async <
-    I extends schema.Interaction,
-    C extends Record<string, unknown> = {}
-  >(
-    interaction: I,
-    context: AsyncLocalStorage<DiscordContext<C, I>>,
+  return async <C extends Record<string, unknown> = {}>(
+    interaction: schema.Interaction,
+    context: AsyncLocalStorage<DiscordContext<C>>,
     getContext: () => Promise<C> | C
   ) => {
     const ctx = await getContext();

@@ -16,24 +16,51 @@ export const member = z.object({
 export const baseOption = z.object({
   name: z.string(),
 });
-type BaseOption<T extends number = number> = z.infer<typeof baseOption> & {
-  type: T;
-  focused?: boolean;
+type BaseOption<T extends number = number> = typeof baseOption.shape & {
+  type: z.ZodLiteral<T>;
 };
+type BaseObjectType<T extends number = number> = z.ZodObject<
+  BaseOption<T>,
+  "strip"
+>;
 
-export const subcommand: z.ZodType<
-  BaseOption<1> & { options?: BaseOption<3 | 4 | 5 | 6 | 7>[] }
+export const subcommand: z.ZodObject<
+  BaseOption<1> & {
+    options: z.ZodOptional<
+      z.ZodArray<
+        z.ZodLazy<
+          z.ZodDiscriminatedUnion<
+            "type",
+            [
+              BaseObjectType<3>,
+              BaseObjectType<4>,
+              BaseObjectType<5>,
+              BaseObjectType<6>
+            ]
+          >
+        >
+      >
+    >;
+  },
+  "strip"
 > = z.object({
   type: z.literal(1),
   name: z.string(),
-  options: z.lazy(() => flagOption.array()).optional(),
+  options: z.array(z.lazy(() => flagOption)).optional(),
 });
-export const subcommandGroup: z.ZodType<
-  BaseOption<2> & { options: BaseOption<1 | 2>[] }
+export const subcommandGroup: z.ZodObject<
+  BaseOption<2> & {
+    options: z.ZodArray<
+      z.ZodLazy<
+        z.ZodDiscriminatedUnion<"type", [BaseObjectType<1>, BaseObjectType<2>]>
+      >
+    >;
+  },
+  "strip"
 > = z.object({
   type: z.literal(2),
   name: z.string(),
-  options: z.lazy(() => subcommandOption.array().min(1)),
+  options: z.array(z.lazy(() => subcommandOption)).min(1),
 });
 export const stringOption = z
   .object({
@@ -62,7 +89,10 @@ export const userOption = z
   })
   .merge(baseOption);
 
-export const subcommandOption = z.union([subcommand, subcommandGroup]);
+export const subcommandOption = z.discriminatedUnion("type", [
+  subcommand,
+  subcommandGroup,
+]);
 
 export const autoCompletableOption = z.discriminatedUnion("type", [
   stringOption,

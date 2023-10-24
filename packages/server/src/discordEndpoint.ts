@@ -8,14 +8,16 @@ import {
   InteractionResponseFlags,
 } from "discord-interactions";
 import { eq, and } from "drizzle-orm";
-import { AsyncLocalStorage } from "async_hooks";
 
 import {
   discordRouterRoot,
   discordRoute,
   type DiscordContext,
   schema,
-} from "./discord-router";
+} from "@cg/discord-router";
+
+import { AsyncLocalStorage } from "async_hooks";
+
 import { generalMoves, uniqueMoves } from "./moves";
 import { db } from "./db";
 import {
@@ -69,6 +71,7 @@ const getTokenContent = (
     .join("\n");
 };
 
+type M = DiscordContext<{}>["interaction"];
 const context = new AsyncLocalStorage<
   DiscordContext<{ thisGame: typeof games.$inferSelect }>
 >();
@@ -115,9 +118,11 @@ const discordRouter = discordRouterRoot({
     discordRoute("tokens", async () => {
       const { interaction: i, thisGame } =
         context.getStore() ?? YEET("Fucking context");
-      const interaction = i.type === 2 ? i : YEET("Wrong interaction type");
+      const interaction =
+        i.type === 2
+          ? schema.messageInteraction.parse(i)
+          : YEET("Wrong interaction type");
 
-      interaction.type;
       if (!thisGame) throw new Error("No game in this server");
 
       if (thisGame.gmDiscordId === interaction.member.user.id) {
