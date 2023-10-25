@@ -1,5 +1,5 @@
 {
-  "name": "@cg/discord-router",
+  "name": "@cgaeta/discord-router",
   "version": "0.0.0",
   "scripts": {
     "build:declarations": "tsc src.ts --declaration --emitDeclarationOnly --strict --declarationDir dist"
@@ -11,5 +11,8 @@
   },
   "type": "module",
   "module": "./dist/src.js",
-  "types": "./dist/src.d.ts"
+  "types": "./dist/src.d.ts",
+  "repository": {
+    "url": "git+https://github.com/cgaeta/cg-bob.git"
+  }
 }
