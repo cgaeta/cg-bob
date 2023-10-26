@@ -19,30 +19,25 @@ export const baseOption = z.object({
 type BaseOption<T extends number = number> = typeof baseOption.shape & {
   type: z.ZodLiteral<T>;
 };
-type BaseObjectType<T extends number = number> = z.ZodObject<
-  BaseOption<T>,
-  "strip"
+type BaseObjectType<T extends number = number> = z.ZodObject<BaseOption<T>>;
+
+type ZodOptions<T extends z.ZodDiscriminatedUnionOption<"type">[]> = z.ZodArray<
+  z.ZodLazy<z.ZodDiscriminatedUnion<"type", T>>
 >;
 
 export const subcommand: z.ZodObject<
   BaseOption<1> & {
     options: z.ZodOptional<
-      z.ZodArray<
-        z.ZodLazy<
-          z.ZodDiscriminatedUnion<
-            "type",
-            [
-              BaseObjectType<3>,
-              BaseObjectType<4>,
-              BaseObjectType<5>,
-              BaseObjectType<6>
-            ]
-          >
-        >
+      ZodOptions<
+        [
+          BaseObjectType<3>,
+          BaseObjectType<4>,
+          BaseObjectType<5>,
+          BaseObjectType<6>
+        ]
       >
     >;
-  },
-  "strip"
+  }
 > = z.object({
   type: z.literal(1),
   name: z.string(),
@@ -50,13 +45,8 @@ export const subcommand: z.ZodObject<
 });
 export const subcommandGroup: z.ZodObject<
   BaseOption<2> & {
-    options: z.ZodArray<
-      z.ZodLazy<
-        z.ZodDiscriminatedUnion<"type", [BaseObjectType<1>, BaseObjectType<2>]>
-      >
-    >;
-  },
-  "strip"
+    options: ZodOptions<[BaseObjectType<1>, BaseObjectType<2>]>;
+  }
 > = z.object({
   type: z.literal(2),
   name: z.string(),
