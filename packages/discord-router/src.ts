@@ -83,13 +83,12 @@ export const discordRouterRoot = (handlers: {
 
         return handler(...(data.options ?? []));
       } else if (interaction.type === InteractionType.MESSAGE_COMPONENT) {
-        console.log(interaction);
         const handler = componentServer.get(
           interaction.message.interaction.name
         );
         if (!handler) throw new Error("Route not found");
 
-        return handler(interaction);
+        return handler();
       } else if (
         interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE
       ) {

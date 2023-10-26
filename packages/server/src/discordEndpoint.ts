@@ -411,7 +411,13 @@ const discordRouter = discordRouterRoot({
     ]),
   ],
   componentCmds: [
-    discordRoute("moves", async ({ data, message }) => {
+    discordRoute("moves", async () => {
+      const { interaction } = context.getStore() ?? YEET("Broken context");
+
+      if (interaction.type !== InteractionType.MESSAGE_COMPONENT) {
+        throw YEET("Wrong interaction type");
+      }
+      const { data, message } = interaction;
       console.log(message, data);
       return UNDER_CONSTRUCTION_RESP;
     }),
