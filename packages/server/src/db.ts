@@ -1,8 +1,5 @@
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql";
-import {
-  BunSQLiteDatabase,
-  drizzle as drizzleBun,
-} from "drizzle-orm/bun-sqlite";
+import { drizzle as drizzleBun } from "drizzle-orm/bun-sqlite";
 import { createClient } from "@libsql/client";
 import { Database } from "bun:sqlite";
 
@@ -19,7 +16,7 @@ const getTursoDb = () => {
 
 const getLocalDb = () => {
   const db = new Database("sqlite.db", { create: true });
-  return drizzleBun(db) as BunSQLiteDatabase;
+  return drizzleBun(db);
 };
 
 export const db = env.NODE_ENV === "development" ? getLocalDb() : getTursoDb();

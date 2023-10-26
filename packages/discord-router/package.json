@@ -1,0 +1,22 @@
+{
+  "name": "@cgaeta/discord-router",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "bun build ./src.ts --outdir ./dist --external zod --external discord-interactions",
+    "build:declarations": "tsc src.ts --declaration --emitDeclarationOnly --strict --declarationDir dist",
+    "clean": "rm -rf dist",
+    "prepack": "npm run clean && npm run build && npm run build:declarations"
+  },
+  "peerDependencies": {
+    "discord-interactions": "^3.4.0",
+    "typescript": "^5.2.2",
+    "zod": "^3.22.2"
+  },
+  "type": "module",
+  "module": "./dist/src.js",
+  "main": "./dist/src.js",
+  "types": "./dist/src.d.ts",
+  "repository": {
+    "url": "git+https://github.com/cgaeta/cg-bob.git"
+  }
+}
