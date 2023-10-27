@@ -1,7 +1,14 @@
 import { and, eq, sql, like } from "drizzle-orm";
 
 import { db } from "./db";
-import { characters, games, tokenCount, users, gamesUsers } from "./db/schema";
+import {
+  characters,
+  games,
+  tokenCount,
+  users,
+  gamesUsers,
+  userPlayers,
+} from "./db/schema";
 
 const selectCharacters = () => db.select().from(characters);
 const selectCharacterTokens = () =>
@@ -16,6 +23,16 @@ export const selectCharacterById = selectCharacters()
 
 export const selectGameCharacters = selectCharacters()
   .where(eq(characters.gameId, sql.placeholder("gameId")))
+  .prepare();
+
+export const selectUserCharacter = selectCharacters()
+  .innerJoin(userPlayers, eq(userPlayers.characterId, characters.id))
+  .where(
+    and(
+      eq(characters.gameId, sql.placeholder("gameId")),
+      eq(userPlayers.discordId, sql.placeholder("discordId"))
+    )
+  )
   .prepare();
 
 export const selectAllCharacterTokens = selectCharacterTokens()

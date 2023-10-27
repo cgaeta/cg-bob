@@ -117,20 +117,12 @@ const COMMANDS = [
   {
     name: "moves",
     description: "Render moves for a given character",
-    type: OPTION_TYPE.SUB_COMMAND_GROUP,
     options: [
       {
         name: "list",
         description: "List character's moves",
         type: OPTION_TYPE.SUB_COMMAND,
         options: [
-          {
-            name: "character",
-            description: "(Required) Name of character in game",
-            required: true,
-            type: OPTION_TYPE.STRING,
-            autocomplete: true,
-          },
           {
             name: "moveset",
             description: "(Required) Moveset to list or perform",
@@ -150,13 +142,6 @@ const COMMANDS = [
         description: "Perform a move",
         type: OPTION_TYPE.SUB_COMMAND,
         options: [
-          {
-            name: "character",
-            description: "(Required) Name of character in game",
-            required: true,
-            type: OPTION_TYPE.STRING,
-            autocomplete: true,
-          },
           {
             name: "moveset",
             description: "(Required) Moveset to list or perform",
