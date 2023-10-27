@@ -178,10 +178,22 @@ const discordRouter = discordRouterRoot({
 
             if (thisGame.gmDiscordId === interaction.member.user.id)
               return {
-                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                // type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                type: InteractionResponseType.MODAL,
                 data: {
-                  content: "You are the gm of this game",
-                  flags: InteractionResponseFlags.EPHEMERAL,
+                  // content: "You are the gm of this game",
+                  // flags: InteractionResponseFlags.EPHEMERAL,
+                  custom_id: "gm-character-select-moves-list",
+                  title: "Select character",
+                  components: [
+                    {
+                      type: MessageComponentTypes.INPUT_TEXT,
+                      custom_id: "character",
+                      style: 1,
+                      label: "Name",
+                      required: true,
+                    },
+                  ],
                 },
               } satisfies schema.MessageInteractionResponse;
 
