@@ -180,44 +180,48 @@ const textInput = z.object({
   placeholder: z.string().optional(),
 });
 
+const actionRowBase = z.object({
+  type: z.literal(MessageComponentTypes.ACTION_ROW),
+});
+
+const actionRow = actionRowBase.merge(
+  z.object({
+    components: z
+      .discriminatedUnion("type", [
+        z.object({
+          type: z.literal(MessageComponentTypes.BUTTON),
+          style: z.nativeEnum(ButtonStyleTypes),
+          label: z.string(),
+          emoji: emoji,
+          custom_id: z.string().optional(),
+          disabled: z.boolean().optional(),
+        }),
+        z.object({
+          type: z.literal(MessageComponentTypes.STRING_SELECT),
+          custom_id: z.string(),
+          placeholder: z.string().optional(),
+          min_values: z.number().optional(),
+          max_values: z.number().optional(),
+          disabled: z.boolean().optional(),
+          options: z.object({
+            label: z.string(),
+            value: z.string(),
+            description: z.string().optional(),
+            emoji,
+            default: z.boolean().optional(),
+          }),
+        }),
+        textInput,
+      ])
+      .array(),
+  })
+);
+
 export const messageInteractionResponse = z.object({
   type: z.literal(InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE),
   data: z.object({
     content: z.string().optional(),
-    components: z
-      .object({
-        type: z.literal(MessageComponentTypes.ACTION_ROW),
-        components: z
-          .discriminatedUnion("type", [
-            z.object({
-              type: z.literal(MessageComponentTypes.BUTTON),
-              style: z.nativeEnum(ButtonStyleTypes),
-              label: z.string(),
-              emoji: emoji,
-              custom_id: z.string().optional(),
-              disabled: z.boolean().optional(),
-            }),
-            z.object({
-              type: z.literal(MessageComponentTypes.STRING_SELECT),
-              custom_id: z.string(),
-              placeholder: z.string().optional(),
-              min_values: z.number().optional(),
-              max_values: z.number().optional(),
-              disabled: z.boolean().optional(),
-              options: z.object({
-                label: z.string(),
-                value: z.string(),
-                description: z.string().optional(),
-                emoji,
-                default: z.boolean().optional(),
-              }),
-            }),
-            textInput,
-          ])
-          .array(),
-      })
-      .array()
-      .optional(),
+    components: actionRow.array().optional(),
     flags: z.number().optional(),
   }),
 });
@@ -247,7 +251,9 @@ export const modalInteractionResponse = z.object({
   data: z.object({
     custom_id: z.string(),
     title: z.string(),
-    components: z.array(textInput),
+    components: actionRowBase
+      .merge(z.object({ components: z.array(textInput) }))
+      .array(),
   }),
 });
 export type ModalInteractionResponse = z.infer<typeof modalInteractionResponse>;
