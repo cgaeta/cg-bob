@@ -6,6 +6,7 @@ import {
   InteractionType,
   MessageComponentTypes,
   InteractionResponseFlags,
+  TextStyleTypes,
 } from "discord-interactions";
 import { eq, and } from "drizzle-orm";
 
@@ -176,26 +177,33 @@ const discordRouter = discordRouterRoot({
             if (interaction.type !== InteractionType.APPLICATION_COMMAND)
               throw YEET("Wrong interaction type");
 
-            if (thisGame.gmDiscordId === interaction.member.user.id)
+            if (thisGame.gmDiscordId === interaction.member.user.id) {
+              const characters = await queries.selectGameCharacters.execute({
+                gameId: thisGame.id,
+              });
+              console.log(characters);
+
               return {
-                // type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                 type: InteractionResponseType.MODAL,
                 data: {
-                  // content: "You are the gm of this game",
-                  // flags: InteractionResponseFlags.EPHEMERAL,
                   custom_id: "gm-character-select-moves-list",
                   title: "Select character",
                   components: [
                     {
-                      type: MessageComponentTypes.INPUT_TEXT,
-                      custom_id: "character",
-                      style: 1,
-                      label: "Name",
-                      required: true,
+                      type: MessageComponentTypes.ACTION_ROW,
+                      components: [
+                        {
+                          type: MessageComponentTypes.INPUT_TEXT,
+                          custom_id: "character",
+                          style: TextStyleTypes.SHORT,
+                          label: "Character name",
+                        },
+                      ],
                     },
                   ],
                 },
-              } satisfies schema.MessageInteractionResponse;
+              } satisfies schema.ModalInteractionResponse;
+            }
 
             const [character] = await queries.selectUserCharacter.execute({
               gameId: thisGame.id,
