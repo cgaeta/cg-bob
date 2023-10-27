@@ -168,6 +168,18 @@ const emoji = z.object({
   animated: z.boolean().optional(),
 });
 
+const textInput = z.object({
+  type: z.literal(MessageComponentTypes.INPUT_TEXT),
+  custom_id: z.string(),
+  style: z.nativeEnum(TextStyleTypes),
+  label: z.string(),
+  min_length: z.number().optional(),
+  max_length: z.number().optional(),
+  required: z.boolean().optional(),
+  value: z.string().optional(),
+  placeholder: z.string().optional(),
+});
+
 export const messageInteractionResponse = z.object({
   type: z.literal(InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE),
   data: z.object({
@@ -200,17 +212,7 @@ export const messageInteractionResponse = z.object({
                 default: z.boolean().optional(),
               }),
             }),
-            z.object({
-              type: z.literal(MessageComponentTypes.INPUT_TEXT),
-              custom_id: z.string(),
-              style: z.nativeEnum(TextStyleTypes),
-              label: z.string(),
-              min_length: z.number().optional(),
-              max_length: z.number().optional(),
-              required: z.boolean().optional(),
-              value: z.string().optional(),
-              placeholder: z.string().optional(),
-            }),
+            textInput,
           ])
           .array(),
       })
@@ -240,8 +242,19 @@ export type AutoCompleteInteractionResponse = z.infer<
   typeof autoCompleteInteractionResponse
 >;
 
+export const modalInteractionResponse = z.object({
+  type: z.literal(InteractionResponseType.MODAL),
+  data: z.object({
+    custom_id: z.string(),
+    title: z.string(),
+    components: z.array(textInput),
+  }),
+});
+export type ModalInteractionResponse = z.infer<typeof modalInteractionResponse>;
+
 export const interactionResponse = z.discriminatedUnion("type", [
   messageInteractionResponse,
   autoCompleteInteractionResponse,
+  modalInteractionResponse,
 ]);
 export type InteractionResponse = z.infer<typeof interactionResponse>;
