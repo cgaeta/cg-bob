@@ -131,7 +131,7 @@ export type MessageInteraction = z.infer<typeof messageInteraction>;
 
 export const messageComponentInteraction = z.object({
   type: z.literal(3),
-  member: member,
+  member,
   guild_id: z.string(),
   message: z.object({
     interaction: z.object({
@@ -154,11 +154,23 @@ export const autoCompleteInteraction = z.object({
   data: messageData,
 });
 
+export const modalSubmitInteraction = z.object({
+  type: z.literal(5),
+  member,
+  guild_id: z.string(),
+  data: z.object({
+    custom_id: z.string(),
+    components: z.any(),
+  }),
+});
+export type ModalSubmitInteraction = z.infer<typeof modalSubmitInteraction>;
+
 export const interaction = z.discriminatedUnion("type", [
   ping,
   messageInteraction,
   messageComponentInteraction,
   autoCompleteInteraction,
+  modalSubmitInteraction,
 ]);
 export type Interaction = z.infer<typeof interaction>;
 
