@@ -163,16 +163,134 @@ const discordRouter = discordRouterRoot({
         } satisfies schema.MessageInteractionResponse;
       }
     }),
-    discordRoute(
-      "moves",
-      z
-        .function()
-        .args(schema.stringOption, schema.stringOption, schema.stringOption)
-        .implement(async (char, act, mov) => {
-          const { thisGame } = context.getStore() ?? YEET("Fucking context");
-          if (!thisGame) YEET("No game in this server");
+    // discordRoute(
+    //   "moves",
+    //   z
+    //     .function()
+    //     .args(schema.stringOption, schema.stringOption, schema.stringOption)
+    //     .implement(async (char, act, mov) => {
+    //       const { thisGame } = context.getStore() ?? YEET("Fucking context");
+    //       if (!thisGame) YEET("No game in this server");
 
-          if (act.value === "list") {
+    //       if (act.value === "list") {
+    //         const m = movesSchema.parse(mov.value);
+    //         const general = generalMoves[m];
+    //         const [c] = await queries.selectCharacterById.execute({
+    //           charId: char.value,
+    //         });
+    //         if (!c) YEET("Character not found");
+    //         const name = c.name;
+    //         const isKey = (n: string): n is keyof typeof uniqueMoves =>
+    //           n in uniqueMoves;
+    //         const validName = isKey(name) ? name : YEET("Invalid name");
+    //         const unique = uniqueMoves[validName][m];
+
+    //         return {
+    //           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    //           data: {
+    //             content: `${general.concat(unique).map((g) => `\n- ${g}`)}`,
+    //             components: [
+    //               {
+    //                 type: MessageComponentTypes.ACTION_ROW,
+    //                 components: [
+    //                   {
+    //                     type: MessageComponentTypes.BUTTON,
+    //                     label: "Make a Strong Move",
+    //                     style: 2,
+    //                     emoji: emoji("💪"),
+    //                     custom_id: `move-strong`,
+    //                   },
+    //                   {
+    //                     type: MessageComponentTypes.BUTTON,
+    //                     label: "Make a Normal Move",
+    //                     style: 2,
+    //                     emoji: emoji("😐"),
+    //                     custom_id: `move-normal`,
+    //                   },
+    //                   {
+    //                     type: MessageComponentTypes.BUTTON,
+    //                     label: "Make a Weak Move",
+    //                     style: 2,
+    //                     emoji: emoji("😭"),
+    //                     custom_id: `move-weak`,
+    //                   },
+    //                 ],
+    //               },
+    //             ],
+    //             flags: InteractionResponseFlags.EPHEMERAL,
+    //           },
+    //         } satisfies schema.MessageInteractionResponse;
+    //       } else if (act.value === "do") {
+    //         const thisGame = context.getStore()?.thisGame;
+    //         if (!thisGame) throw new Error("No game in this server");
+
+    //         const [character] = await queries.selectCharacterById.execute({
+    //           charId: char.value,
+    //         });
+
+    //         const [count] = await queries.selectCharacterWithTokens.execute({
+    //           name: character.name,
+    //           gameId: thisGame.id,
+    //         });
+
+    //         if (!count) throw new Error("Character not found!");
+    //         if (!count.tokenCount) throw new Error("Tokens not found!");
+
+    //         let content;
+    //         if (mov.value === "strongMoves") {
+    //           if (count.tokenCount.tokens < 1) {
+    //             content = `${capitalize(
+    //               character.name
+    //             )} can't make a strong move without a token!`;
+    //           } else {
+    //             await queries.updateTokenCount(
+    //               count.tokenCount.characterId,
+    //               count.tokenCount.tokens - 1
+    //             );
+    //           }
+
+    //           content = `${capitalize(
+    //             character.name
+    //           )} has spent a token and made a strong move!`;
+    //         } else if (mov.value === "weakMoves") {
+    //           await queries.updateTokenCount(
+    //             count.tokenCount.characterId,
+    //             count.tokenCount.tokens + 1
+    //           );
+
+    //           content = `${capitalize(
+    //             character.name
+    //           )} has made a weak move and earned a token!`;
+    //         } else if (mov.value === "normalMoves") {
+    //           content = `${capitalize(character.name)} has made a normal move.`;
+    //         } else if (mov.value === "socialMoves") {
+    //           content = `${capitalize(
+    //             character.name
+    //           )} has made a normal move? Ask your GM what happens next.`;
+    //         }
+
+    //         return {
+    //           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    //           data: { content, flags: InteractionResponseFlags.EPHEMERAL },
+    //         } satisfies schema.MessageInteractionResponse;
+    //       }
+
+    //       throw new Error("Shouldn't be here");
+    //     })
+    // ),
+    discordRoute("moves", [
+      discordRoute(
+        "list",
+        z
+          .function()
+          .args(schema.stringOption, schema.stringOption)
+          .implement(async (char, mov) => {
+            const { thisGame, interaction } =
+              context.getStore() ?? YEET("Fucking context");
+            if (!thisGame) YEET("No game in this server");
+            if (interaction.type !== InteractionType.APPLICATION_COMMAND)
+              YEET("Wrong interaction type");
+
             const m = movesSchema.parse(mov.value);
             const general = generalMoves[m];
             const [c] = await queries.selectCharacterById.execute({
@@ -220,7 +338,14 @@ const discordRouter = discordRouterRoot({
                 flags: InteractionResponseFlags.EPHEMERAL,
               },
             } satisfies schema.MessageInteractionResponse;
-          } else if (act.value === "do") {
+          })
+      ),
+      discordRoute(
+        "do",
+        z
+          .function()
+          .args(schema.stringOption, schema.stringOption)
+          .implement(async (char, mov) => {
             const thisGame = context.getStore()?.thisGame;
             if (!thisGame) throw new Error("No game in this server");
 
@@ -273,11 +398,9 @@ const discordRouter = discordRouterRoot({
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
               data: { content, flags: InteractionResponseFlags.EPHEMERAL },
             } satisfies schema.MessageInteractionResponse;
-          }
-
-          throw new Error("Shouldn't be here");
-        })
-    ),
+          })
+      ),
+    ]),
     discordRoute("gm", [
       discordRoute("game", [
         discordRoute("init", async () => {

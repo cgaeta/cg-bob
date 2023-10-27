@@ -117,35 +117,59 @@ const COMMANDS = [
   {
     name: "moves",
     description: "Render moves for a given character",
+    type: OPTION_TYPE.SUB_COMMAND_GROUP,
     options: [
       {
-        name: "character",
-        description: "(Required) Name of a character in game",
-        required: true,
-        type: OPTION_TYPE.STRING,
-        autocomplete: true,
+        name: "list",
+        description: "List character's moves",
+        type: OPTION_TYPE.SUB_COMMAND,
+        options: [
+          {
+            name: "character",
+            description: "(Required) Name of character in game",
+            required: true,
+            type: OPTION_TYPE.STRING,
+            autocomplete: true,
+          },
+          {
+            name: "moveset",
+            description: "(Required) Moveset to list or perform",
+            required: true,
+            choices: [
+              { name: "strong", value: "strongMoves" },
+              { name: "normal", value: "normalMoves" },
+              { name: "weak", value: "weakMoves" },
+              { name: "social", value: "socialMoves" },
+            ],
+            type: OPTION_TYPE.STRING,
+          },
+        ],
       },
       {
-        name: "action",
-        description: "(Required) List or perform moves",
-        required: true,
-        choices: [
-          { name: "list", value: "list" },
-          { name: "do", value: "do" },
+        name: "do",
+        description: "Perform a move",
+        type: OPTION_TYPE.SUB_COMMAND,
+        options: [
+          {
+            name: "character",
+            description: "(Required) Name of character in game",
+            required: true,
+            type: OPTION_TYPE.STRING,
+            autocomplete: true,
+          },
+          {
+            name: "moveset",
+            description: "(Required) Moveset to list or perform",
+            required: true,
+            choices: [
+              { name: "strong", value: "strongMoves" },
+              { name: "normal", value: "normalMoves" },
+              { name: "weak", value: "weakMoves" },
+              { name: "social", value: "socialMoves" },
+            ],
+            type: OPTION_TYPE.STRING,
+          },
         ],
-        type: OPTION_TYPE.STRING,
-      },
-      {
-        name: "moveset",
-        description: "(Required) Moveset to list or perform",
-        required: true,
-        choices: [
-          { name: "strong", value: "strongMoves" },
-          { name: "normal", value: "normalMoves" },
-          { name: "weak", value: "weakMoves" },
-          { name: "social", value: "socialMoves" },
-        ],
-        type: OPTION_TYPE.STRING,
       },
     ],
   },
