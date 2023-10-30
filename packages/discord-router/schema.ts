@@ -131,7 +131,7 @@ export type MessageInteraction = z.infer<typeof messageInteraction>;
 
 export const messageComponentInteraction = z.object({
   type: z.literal(3),
-  member: member,
+  member,
   guild_id: z.string(),
   message: z.object({
     interaction: z.object({
@@ -154,11 +154,37 @@ export const autoCompleteInteraction = z.object({
   data: messageData,
 });
 
+export const modalSubmitInteraction = z.object({
+  type: z.literal(5),
+  member,
+  guild_id: z.string(),
+  data: z.object({
+    custom_id: z.string(),
+    components: z
+      .object({
+        type: z.literal(1),
+        components: z
+          .object({
+            custom_id: z.string(),
+            type: z.literal(4),
+            value: z.string(),
+          })
+          .array()
+          .length(1),
+      })
+      .array()
+      .min(1)
+      .max(5),
+  }),
+});
+export type ModalSubmitInteraction = z.infer<typeof modalSubmitInteraction>;
+
 export const interaction = z.discriminatedUnion("type", [
   ping,
   messageInteraction,
   messageComponentInteraction,
   autoCompleteInteraction,
+  modalSubmitInteraction,
 ]);
 export type Interaction = z.infer<typeof interaction>;
 
@@ -252,8 +278,10 @@ export const modalInteractionResponse = z.object({
     custom_id: z.string(),
     title: z.string(),
     components: actionRowBase
-      .merge(z.object({ components: z.array(textInput) }))
-      .array(),
+      .merge(z.object({ components: textInput.array().length(1) }))
+      .array()
+      .min(1)
+      .max(5),
   }),
 });
 export type ModalInteractionResponse = z.infer<typeof modalInteractionResponse>;
