@@ -503,6 +503,7 @@ const discordRouter = discordRouterRoot({
         })
     ),
   ],
+  modalsubmitCmds: [],
 });
 
 export const discordEndpoint = (app: Elysia) =>
