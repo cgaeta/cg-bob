@@ -1,6 +1,6 @@
 {
   "name": "@cgaeta/discord-router",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "scripts": {
     "build:app": "bun build ./src.ts --outdir ./dist --external zod --external discord-interactions",
     "build:declarations": "tsc src.ts --declaration --emitDeclarationOnly --strict --declarationDir dist",
