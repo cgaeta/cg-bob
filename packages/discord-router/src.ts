@@ -52,6 +52,7 @@ export const discordRouterRoot = (handlers: {
   applicationCmds: DiscordRoute[];
   componentCmds: DiscordRoute[];
   autocompleteCmds: DiscordRoute[];
+  modalsubmitCmds: DiscordRoute[];
 }) => {
   const applicationCommandServer = handlers.applicationCmds.reduce(
     reduceRoutes,
@@ -65,6 +66,12 @@ export const discordRouterRoot = (handlers: {
     reduceRoutes,
     new Map()
   );
+  const modalSubmitServer = handlers.modalsubmitCmds.reduce(
+    reduceRoutes,
+    new Map()
+  );
+
+  const routeError = new Error("Route not found");
 
   return async <C extends Record<string, unknown> = {}>(
     interaction: schema.Interaction,
@@ -79,14 +86,14 @@ export const discordRouterRoot = (handlers: {
         const data = interaction.data;
 
         const handler = applicationCommandServer.get(data.name);
-        if (!handler) throw new Error("Route not found");
+        if (!handler) throw routeError;
 
         return handler(...(data.options ?? []));
       } else if (interaction.type === InteractionType.MESSAGE_COMPONENT) {
         const handler = componentServer.get(
           interaction.message.interaction.name
         );
-        if (!handler) throw new Error("Route not found");
+        if (!handler) throw routeError;
 
         return handler();
       } else if (
@@ -95,9 +102,16 @@ export const discordRouterRoot = (handlers: {
         const data = interaction.data;
 
         const handler = autoCompleteServer.get(data.name);
-        if (!handler) throw new Error("Route not found");
+        if (!handler) throw routeError;
 
         return handler(...(data.options ?? []));
+      } else if (interaction.type === InteractionType.MODAL_SUBMIT) {
+        const data = interaction.data;
+
+        const handler = modalSubmitServer.get(data.custom_id);
+        if (!handler) throw routeError;
+
+        return handler(...data.components.map((c) => c.components[0].value));
       }
     });
   };

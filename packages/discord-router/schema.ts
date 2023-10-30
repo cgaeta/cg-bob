@@ -160,7 +160,21 @@ export const modalSubmitInteraction = z.object({
   guild_id: z.string(),
   data: z.object({
     custom_id: z.string(),
-    components: z.any(),
+    components: z
+      .object({
+        type: z.literal(1),
+        components: z
+          .object({
+            custom_id: z.string(),
+            type: z.literal(4),
+            value: z.string(),
+          })
+          .array()
+          .length(1),
+      })
+      .array()
+      .min(1)
+      .max(5),
   }),
 });
 export type ModalSubmitInteraction = z.infer<typeof modalSubmitInteraction>;
@@ -264,8 +278,10 @@ export const modalInteractionResponse = z.object({
     custom_id: z.string(),
     title: z.string(),
     components: actionRowBase
-      .merge(z.object({ components: z.array(textInput) }))
-      .array(),
+      .merge(z.object({ components: textInput.array().length(1) }))
+      .array()
+      .min(1)
+      .max(5),
   }),
 });
 export type ModalInteractionResponse = z.infer<typeof modalInteractionResponse>;
