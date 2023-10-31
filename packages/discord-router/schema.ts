@@ -218,7 +218,7 @@ const actionRow = actionRowBase.merge(
           type: z.literal(MessageComponentTypes.BUTTON),
           style: z.nativeEnum(ButtonStyleTypes),
           label: z.string(),
-          emoji: emoji,
+          emoji: emoji.optional(),
           custom_id: z.string().optional(),
           disabled: z.boolean().optional(),
         }),
@@ -229,13 +229,15 @@ const actionRow = actionRowBase.merge(
           min_values: z.number().optional(),
           max_values: z.number().optional(),
           disabled: z.boolean().optional(),
-          options: z.object({
-            label: z.string(),
-            value: z.string(),
-            description: z.string().optional(),
-            emoji,
-            default: z.boolean().optional(),
-          }),
+          options: z
+            .object({
+              label: z.string(),
+              value: z.string(),
+              description: z.string().optional(),
+              emoji: emoji.optional(),
+              default: z.boolean().optional(),
+            })
+            .array(),
         }),
         textInput,
       ])
