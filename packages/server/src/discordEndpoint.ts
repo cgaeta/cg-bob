@@ -72,7 +72,6 @@ const getTokenContent = (
     .join("\n");
 };
 
-type M = DiscordContext<{}>["interaction"];
 const context = new AsyncLocalStorage<
   DiscordContext<{ thisGame: typeof games.$inferSelect }>
 >();
@@ -178,27 +177,6 @@ const discordRouter = discordRouterRoot({
               throw YEET("Wrong interaction type");
 
             if (thisGame.gmDiscordId === interaction.member.user.id) {
-              // return {
-              //   type: InteractionResponseType.MODAL,
-              //   data: {
-              //     custom_id: "gm-character-select-moves-list",
-              //     title: "Select character",
-              //     components: [
-              //       {
-              //         type: MessageComponentTypes.ACTION_ROW,
-              //         components: [
-              //           {
-              //             type: MessageComponentTypes.INPUT_TEXT,
-              //             custom_id: "character",
-              //             style: TextStyleTypes.SHORT,
-              //             label: "Character name",
-              //             required: true,
-              //           },
-              //         ],
-              //       },
-              //     ],
-              //   },
-              // } satisfies schema.ModalInteractionResponse;
               const char = await queries.selectGameCharacters.execute({
                 gameId: thisGame.id,
               });
@@ -213,16 +191,16 @@ const discordRouter = discordRouterRoot({
                       components: [
                         {
                           type: MessageComponentTypes.STRING_SELECT,
-                          custom_id: "character",
+                          custom_id: mov.value,
                           options: char.map((c) => ({
                             label: c.name,
                             value: c.id,
-                            emoji: emoji("😐"),
                           })),
                         },
                       ],
                     },
                   ],
+                  flags: InteractionResponseFlags.EPHEMERAL,
                 },
               } satisfies schema.MessageInteractionResponse;
             }
@@ -499,8 +477,71 @@ const discordRouter = discordRouterRoot({
         throw YEET("Wrong interaction type");
       }
       const { data, message } = interaction;
-      console.log(message, data);
       return UNDER_CONSTRUCTION_RESP;
+    }),
+    discordRoute("moves list", async () => {
+      const { interaction, thisGame } =
+        context.getStore() ?? YEET("Broken context");
+
+      if (interaction.type !== InteractionType.MESSAGE_COMPONENT) {
+        throw YEET("Wrong interaction type");
+      }
+      if (!thisGame) {
+        throw YEET("No game in this server");
+      }
+
+      const { data } = interaction;
+      const value = data.values?.[0] ?? YEET("No value selected");
+
+      const [character] = await queries.selectCharacterById.execute({
+        charId: value,
+      });
+
+      const m = movesSchema.parse(data.custom_id);
+      const general = generalMoves[m];
+      if (!character) YEET("Character not found");
+
+      const name = character.name;
+      const isKey = (n: string): n is keyof typeof uniqueMoves =>
+        n in uniqueMoves;
+      const validName = isKey(name) ? name : YEET("Invalid name");
+      const unique = uniqueMoves[validName][m];
+
+      return {
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: `${general.concat(unique).map((g) => `\n- ${g}`)}`,
+          components: [
+            {
+              type: MessageComponentTypes.ACTION_ROW,
+              components: [
+                {
+                  type: MessageComponentTypes.BUTTON,
+                  label: "Make a Strong Move",
+                  style: 2,
+                  emoji: emoji("💪"),
+                  custom_id: `move-strong`,
+                },
+                {
+                  type: MessageComponentTypes.BUTTON,
+                  label: "Make a Normal Move",
+                  style: 2,
+                  emoji: emoji("😐"),
+                  custom_id: `move-normal`,
+                },
+                {
+                  type: MessageComponentTypes.BUTTON,
+                  label: "Make a Weak Move",
+                  style: 2,
+                  emoji: emoji("😭"),
+                  custom_id: `move-weak`,
+                },
+              ],
+            },
+          ],
+          flags: InteractionResponseFlags.EPHEMERAL,
+        },
+      } satisfies schema.MessageInteractionResponse;
     }),
     discordRoute("move-strong", async () => {
       return UNDER_CONSTRUCTION_RESP;
