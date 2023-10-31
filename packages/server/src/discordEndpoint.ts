@@ -178,31 +178,53 @@ const discordRouter = discordRouterRoot({
               throw YEET("Wrong interaction type");
 
             if (thisGame.gmDiscordId === interaction.member.user.id) {
-              const characters = await queries.selectGameCharacters.execute({
+              // return {
+              //   type: InteractionResponseType.MODAL,
+              //   data: {
+              //     custom_id: "gm-character-select-moves-list",
+              //     title: "Select character",
+              //     components: [
+              //       {
+              //         type: MessageComponentTypes.ACTION_ROW,
+              //         components: [
+              //           {
+              //             type: MessageComponentTypes.INPUT_TEXT,
+              //             custom_id: "character",
+              //             style: TextStyleTypes.SHORT,
+              //             label: "Character name",
+              //             required: true,
+              //           },
+              //         ],
+              //       },
+              //     ],
+              //   },
+              // } satisfies schema.ModalInteractionResponse;
+              const char = await queries.selectGameCharacters.execute({
                 gameId: thisGame.id,
               });
-              console.log(characters);
 
               return {
-                type: InteractionResponseType.MODAL,
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                 data: {
-                  custom_id: "gm-character-select-moves-list",
-                  title: "Select character",
+                  content: "Select a character to proceed with",
                   components: [
                     {
                       type: MessageComponentTypes.ACTION_ROW,
                       components: [
                         {
-                          type: MessageComponentTypes.INPUT_TEXT,
+                          type: MessageComponentTypes.STRING_SELECT,
                           custom_id: "character",
-                          style: TextStyleTypes.SHORT,
-                          label: "Character name",
+                          options: char.map((c) => ({
+                            label: c.name,
+                            value: c.id,
+                            emoji: emoji("😐"),
+                          })),
                         },
                       ],
                     },
                   ],
                 },
-              } satisfies schema.ModalInteractionResponse;
+              } satisfies schema.MessageInteractionResponse;
             }
 
             const [character] = await queries.selectUserCharacter.execute({
@@ -562,7 +584,29 @@ const discordRouter = discordRouterRoot({
         })
     ),
   ],
-  modalsubmitCmds: [],
+  modalsubmitCmds: [
+    discordRoute(
+      "gm-character-select-moves-list",
+      z
+        .function()
+        .args(z.string())
+        .implement(async (name) => {
+          const { thisGame } = context.getStore() ?? YEET("No");
+
+          const char = await queries.searchCharacterByName.execute({
+            name,
+            guild_id: thisGame.discordServerId,
+          });
+          return {
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: char.map((c) => c.characters.name).join("\n"),
+              flags: InteractionResponseFlags.EPHEMERAL,
+            },
+          } satisfies schema.MessageInteractionResponse;
+        })
+    ),
+  ],
 });
 
 export const discordEndpoint = (app: Elysia) =>
