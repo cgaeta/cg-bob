@@ -91,7 +91,7 @@ export const discordRouterRoot = (handlers: {
         return handler(...(data.options ?? []));
       } else if (interaction.type === InteractionType.MESSAGE_COMPONENT) {
         const handler = componentServer.get(
-          interaction.message.interaction.name
+          interaction.message.interaction?.name ?? interaction.data.custom_id
         );
         if (!handler) throw routeError;
 
