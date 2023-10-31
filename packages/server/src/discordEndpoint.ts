@@ -269,14 +269,34 @@ const discordRouter = discordRouterRoot({
             if (interaction.type !== InteractionType.APPLICATION_COMMAND)
               throw YEET("Wrong interaction type");
 
-            if (thisGame.gmDiscordId === interaction.member.user.id)
+            if (thisGame.gmDiscordId === interaction.member.user.id) {
+              const char = await queries.selectGameCharacters.execute({
+                gameId: thisGame.id,
+              });
+
               return {
                 type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
                 data: {
-                  content: "You are the gm of this game",
+                  content: "Select a character to proceed with",
+                  components: [
+                    {
+                      type: MessageComponentTypes.ACTION_ROW,
+                      components: [
+                        {
+                          type: MessageComponentTypes.STRING_SELECT,
+                          custom_id: mov.value,
+                          options: char.map((c) => ({
+                            label: c.name,
+                            value: c.id,
+                          })),
+                        },
+                      ],
+                    },
+                  ],
                   flags: InteractionResponseFlags.EPHEMERAL,
                 },
               } satisfies schema.MessageInteractionResponse;
+            }
 
             const [data] = await db
               .select()
@@ -511,36 +531,71 @@ const discordRouter = discordRouterRoot({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
           content: `${general.concat(unique).map((g) => `\n- ${g}`)}`,
-          components: [
-            {
-              type: MessageComponentTypes.ACTION_ROW,
-              components: [
-                {
-                  type: MessageComponentTypes.BUTTON,
-                  label: "Make a Strong Move",
-                  style: 2,
-                  emoji: emoji("💪"),
-                  custom_id: `move-strong`,
-                },
-                {
-                  type: MessageComponentTypes.BUTTON,
-                  label: "Make a Normal Move",
-                  style: 2,
-                  emoji: emoji("😐"),
-                  custom_id: `move-normal`,
-                },
-                {
-                  type: MessageComponentTypes.BUTTON,
-                  label: "Make a Weak Move",
-                  style: 2,
-                  emoji: emoji("😭"),
-                  custom_id: `move-weak`,
-                },
-              ],
-            },
-          ],
           flags: InteractionResponseFlags.EPHEMERAL,
         },
+      } satisfies schema.MessageInteractionResponse;
+    }),
+    discordRoute("moves do", async () => {
+      const { interaction, thisGame } =
+        context.getStore() ?? YEET("Broken context");
+
+      if (interaction.type !== InteractionType.MESSAGE_COMPONENT) {
+        throw YEET("Wrong interaction type");
+      }
+      if (!thisGame) {
+        throw YEET("No game in this server");
+      }
+
+      const [data] = await db
+        .select()
+        .from(characters)
+        .innerJoin(userPlayers, eq(userPlayers.characterId, characters.id))
+        .innerJoin(tokenCount, eq(characters.id, tokenCount.characterId))
+        .where(
+          and(
+            eq(characters.gameId, thisGame.id),
+            eq(userPlayers.discordId, interaction.member.user.id)
+          )
+        );
+
+      if (!data) throw new Error("Character not found!");
+
+      let content;
+      if (interaction.data.custom_id === "strongMoves") {
+        if (data.tokenCount.tokens < 1) {
+          content = `${capitalize(
+            data.characters.name
+          )} can't make a strong move without a token!`;
+        } else {
+          await queries.updateTokenCount(
+            data.tokenCount.characterId,
+            data.tokenCount.tokens - 1
+          );
+        }
+
+        content = `${capitalize(
+          data.characters.name
+        )} has spent a token and made a strong move!`;
+      } else if (interaction.data.custom_id === "weakMoves") {
+        await queries.updateTokenCount(
+          data.tokenCount.characterId,
+          data.tokenCount.tokens + 1
+        );
+
+        content = `${capitalize(
+          data.characters.name
+        )} has made a weak move and earned a token!`;
+      } else if (interaction.data.custom_id === "normalMoves") {
+        content = `${capitalize(data.characters.name)} has made a normal move.`;
+      } else if (interaction.data.custom_id === "socialMoves") {
+        content = `${capitalize(
+          data.characters.name
+        )} has made a normal move? Ask your GM what happens next.`;
+      }
+
+      return {
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: { content, flags: InteractionResponseFlags.EPHEMERAL },
       } satisfies schema.MessageInteractionResponse;
     }),
     discordRoute("move-strong", async () => {
