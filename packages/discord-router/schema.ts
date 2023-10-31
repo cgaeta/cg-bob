@@ -134,13 +134,15 @@ export const messageComponentInteraction = z.object({
   member,
   guild_id: z.string(),
   message: z.object({
-    interaction: z.object({
-      name: z.string(),
-      type: z.number(),
-      user: z.object({
-        id: z.string(),
-      }),
-    }),
+    interaction: z
+      .object({
+        name: z.string(),
+        type: z.number(),
+        user: z.object({
+          id: z.string(),
+        }),
+      })
+      .optional(),
   }),
   data: messageComponentInteractionData,
 });
